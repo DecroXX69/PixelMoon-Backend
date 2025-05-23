@@ -73,6 +73,21 @@ app.get('/get-my-ip', async (req, res) => {
     }
   });
 
+  app.get('/hopestore/checkip', async (req, res) => {
+    try {
+      // If Hopestore requires an API key here, include it in the query or headers.
+      // Their docs didn’t list any params, so we’ll assume a simple GET works.
+      const response = await axios.get('https://a-api.hopestore.id/v3/checkip', {
+        timeout: 5000
+      });
+      // Forward the provider’s response directly
+      res.json(response.data);
+    } catch (err) {
+      console.error('Hopestore checkip error:', err.message);
+      res.status(502).json({ error: 'Failed to fetch checkip', details: err.message });
+    }
+  });
+
 // Custom middleware
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
