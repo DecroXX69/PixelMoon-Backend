@@ -49,6 +49,30 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Add this to your main app file (app.js/server.js)
+app.get('/get-my-ip', async (req, res) => {
+    try {
+      // Method 1: Request headers
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const realIP = req.headers['x-real-ip'];
+      const clientIP = req.connection.remoteAddress;
+      
+      // Method 2: External service to get public IP
+      const axios = require('axios');
+      const externalIP = await axios.get('https://api.ipify.org?format=json');
+      
+      res.json({
+        forwardedFor,
+        realIP,
+        clientIP,
+        externalIP: externalIP.data.ip,
+        renderURL: req.get('host')
+      });
+    } catch (error) {
+      res.json({ error: error.message });
+    }
+  });
+
 // Custom middleware
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
