@@ -19,7 +19,15 @@ router.post('/:id/packs', authenticateUser, gameController.addPackToGame);
 router.put('/:id/packs/:packId', authenticateUser, gameController.updatePack);
 router.delete('/:id/packs/:packId', authenticateUser, gameController.deletePack);
 
+
+router.get('/api-games/smileone', authenticateUser, gameController.getApiGames);
+router.get('/api-servers/:product', authenticateUser, gameController.getApiServers);
+router.get('/api-packs/:product', authenticateUser, gameController.getApiPacks);
+
 // API integration routes
 router.get('/api-products/:provider', authenticateUser, gameController.getApiProducts);
 
+// ...existing code...
+router.post('/verify-userid', authenticateUser, gameController.validateGameUser);
+// ...existing code...
 module.exports = router;

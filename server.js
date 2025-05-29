@@ -9,20 +9,42 @@ const xss = require('xss-clean');
 const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./db/connect');
-
+const axios   = require('axios');
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const gameRoutes = require('./routes/gameRoutes');
-
+const testRoutes = require('./routes/testRoutes');
 // Import middleware
 const { errorHandlerMiddleware } = require('./errors/index');
 const notFoundMiddleware = require('./middleware/not-found');
-
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://13.200.154.171' ,
+    'https://pixelmoonstore.in',
+    'https://www.pixelmoonstore.in'       // your Lightsail IP
+  ];
 // Security middleware
 app.use(helmet());
-app.use(cors());
+
+  
+
+app.use(cors({
+    origin: function(origin, callback) {
+      if (!origin) return callback(null, true); // for curl/postman etc.
+      if (allowedOrigins.indexOf(origin) === -1) {
+        return callback(new Error('CORS not allowed'), false);
+      }
+      return callback(null, true);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  }));
+
+  
 app.use(xss());
 app.use(mongoSanitize());
+
+
 
 // Rate limiting
 const limiter = rateLimit({
@@ -38,62 +60,18 @@ app.use(express.json());
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
-app.use('/api/games', gameRoutes);
+app.use('/api/v1/games', gameRoutes);
+app.use('/api/test', testRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'Game Topup API is running',
-    timestamp: new Date().toISOString()
-  });
-});
 
-// Add this to your main app file (app.js/server.js)
-app.get('/get-my-ip', async (req, res) => {
-    try {
-      // Method 1: Request headers
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const realIP = req.headers['x-real-ip'];
-      const clientIP = req.connection.remoteAddress;
-      
-      // Method 2: External service to get public IP
-      const axios = require('axios');
-      const externalIP = await axios.get('https://api.ipify.org?format=json');
-      
-      res.json({
-        forwardedFor,
-        realIP,
-        clientIP,
-        externalIP: externalIP.data.ip,
-        renderURL: req.get('host')
-      });
-    } catch (error) {
-      res.json({ error: error.message });
-    }
-  });
 
-  app.get('/hopestore/checkip', async (req, res) => {
-    try {
-      // If Hopestore requires an API key here, include it in the query or headers.
-      // Their docs didn’t list any params, so we’ll assume a simple GET works.
-      const response = await axios.get('https://a-api.hopestore.id/v3/checkip', {
-        timeout: 5000
-      });
-      // Forward the provider’s response directly
-      res.json(response.data);
-    } catch (err) {
-      console.error('Hopestore checkip error:', err.message);
-      res.status(502).json({ error: 'Failed to fetch checkip', details: err.message });
-    }
-  });
 
 // Custom middleware
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
 
 // Start server
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 3000;
 
 const start = async () => {
   try {

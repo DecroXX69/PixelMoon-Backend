@@ -1,290 +1,453 @@
 // controllers/gameController.js
 const Game = require('../models/Game');
-const apiService = require('../services/apiService');
+const Order = require('../models/Order');
+const APIService = require('../services/apiService');
+const { StatusCodes } = require('http-status-codes');
+const { BadRequestError, NotFoundError } = require('../errors');
 
-// Admin Controllers
+// Get all games (public)
+const getAllGames = async (req, res) => {
+  try {
+    const games = await Game.find({ isActive: true })
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 });
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      count: games.length,
+      games
+    });
+  } catch (error) {
+    console.error('Error fetching games:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching games',
+      error: error.message
+    });
+  }
+};
+
+// Get single game by ID
+const getGameById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const game = await Game.findById(id).populate('createdBy', 'name email');
+    
+    if (!game) {
+      throw new NotFoundError('Game not found');
+    }
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      game
+    });
+  } catch (error) {
+    console.error('Error fetching game:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching game',
+      error: error.message
+    });
+  }
+};
+
+// Create new game (admin only)
 const createGame = async (req, res) => {
   try {
-    const { name, description, image, apiProvider, apiGameId, region, packs } = req.body;
-    
-    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
     }
+
+    const { name, description, image, apiProvider, apiGameId, region, category, packs } = req.body;
 
     // Validate required fields
     if (!name || !description || !image || !apiProvider || !apiGameId || !region) {
-      return res.status(400).json({ message: 'All fields are required' });
+      throw new BadRequestError('Please provide all required fields');
     }
 
-    // Check if game with same name already exists
-    const existingGame = await Game.findOne({ name, apiProvider });
+    // Check if game already exists with same API provider and game ID
+    const existingGame = await Game.findOne({ 
+      apiProvider, 
+      apiGameId,
+      name: { $regex: new RegExp(name, 'i') }
+    });
+
     if (existingGame) {
-      return res.status(400).json({ message: 'Game with this name already exists for this API provider' });
+      throw new BadRequestError('Game with this name and API configuration already exists');
     }
 
-    const game = new Game({
-      name,
-      description,
+    const gameData = {
+      name: name.trim(),
+      description: description.trim(),
       image,
       apiProvider,
       apiGameId,
       region,
+      category: category || 'Mobile Games',
       packs: packs || [],
-      createdBy: req.user._id
-    });
+      createdBy: req.user.userId
+    };
 
-    await game.save();
-    res.status(201).json({ message: 'Game created successfully', game });
+    const game = await Game.create(gameData);
+    await game.populate('createdBy', 'name email');
+
+    res.status(StatusCodes.CREATED).json({
+      success: true,
+      message: 'Game created successfully',
+      game
+    });
   } catch (error) {
-    console.error('Create game error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error creating game:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error creating game',
+      error: error.message
+    });
   }
 };
 
+// Update game (admin only)
 const updateGame = async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
     const { id } = req.params;
     const updateData = req.body;
 
-    // Check if user is admin
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
-    }
+    const game = await Game.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('createdBy', 'name email');
 
-    const game = await Game.findByIdAndUpdate(id, updateData, { new: true });
     if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
+      throw new NotFoundError('Game not found');
     }
 
-    res.json({ message: 'Game updated successfully', game });
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Game updated successfully',
+      game
+    });
   } catch (error) {
-    console.error('Update game error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error updating game:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error updating game',
+      error: error.message
+    });
   }
 };
 
+// Delete game (admin only)
 const deleteGame = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
     }
 
+    const { id } = req.params;
     const game = await Game.findByIdAndDelete(id);
+
     if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
+      throw new NotFoundError('Game not found');
     }
 
-    res.json({ message: 'Game deleted successfully' });
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Game deleted successfully'
+    });
   } catch (error) {
-    console.error('Delete game error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error deleting game:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error deleting game',
+      error: error.message
+    });
   }
 };
 
+// Add pack to game (admin only)
 const addPackToGame = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { packId, name, description, amount, retailPrice, resellerPrice, costPrice } = req.body;
-
-    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
     }
+
+    const { id } = req.params;
+    const packData = req.body;
 
     const game = await Game.findById(id);
     if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
+      throw new NotFoundError('Game not found');
     }
 
-    // Check if pack ID already exists
-    const existingPack = game.packs.find(pack => pack.packId === packId);
-    if (existingPack) {
-      return res.status(400).json({ message: 'Pack ID already exists for this game' });
-    }
-
-    const newPack = {
-      packId,
-      name,
-      description,
-      amount,
-      retailPrice,
-      resellerPrice,
-      costPrice
-    };
-
-    game.packs.push(newPack);
+    game.packs.push(packData);
     await game.save();
 
-    res.json({ message: 'Pack added successfully', game });
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Pack added successfully',
+      game
+    });
   } catch (error) {
-    console.error('Add pack error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error adding pack:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error adding pack',
+      error: error.message
+    });
   }
 };
 
+// Update pack in game (admin only)
 const updatePack = async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
     const { id, packId } = req.params;
     const updateData = req.body;
 
-    // Check if user is admin
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
-    }
-
     const game = await Game.findById(id);
     if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
+      throw new NotFoundError('Game not found');
     }
 
     const packIndex = game.packs.findIndex(pack => pack.packId === packId);
     if (packIndex === -1) {
-      return res.status(404).json({ message: 'Pack not found' });
+      throw new NotFoundError('Pack not found');
     }
 
-    // Update pack data
-    Object.assign(game.packs[packIndex], updateData);
+    game.packs[packIndex] = { ...game.packs[packIndex], ...updateData };
     await game.save();
 
-    res.json({ message: 'Pack updated successfully', game });
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Pack updated successfully',
+      game
+    });
   } catch (error) {
-    console.error('Update pack error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error updating pack:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error updating pack',
+      error: error.message
+    });
   }
 };
 
+// Delete pack from game (admin only)
 const deletePack = async (req, res) => {
   try {
-    const { id, packId } = req.params;
-
-    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
     }
+
+    const { id, packId } = req.params;
 
     const game = await Game.findById(id);
     if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
+      throw new NotFoundError('Game not found');
     }
 
     game.packs = game.packs.filter(pack => pack.packId !== packId);
     await game.save();
 
-    res.json({ message: 'Pack deleted successfully', game });
-  } catch (error) {
-    console.error('Delete pack error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-// Public Controllers
-const getAllGames = async (req, res) => {
-  try {
-    const { category, apiProvider, search } = req.query;
-    let query = { isActive: true };
-
-    if (category) {
-      query.category = category;
-    }
-
-    if (apiProvider) {
-      query.apiProvider = apiProvider;
-    }
-
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
-    }
-
-    const games = await Game.find(query)
-      .select('name description image apiProvider region category packs')
-      .sort({ createdAt: -1 });
-
-    res.json({ games });
-  } catch (error) {
-    console.error('Get games error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-const getGameById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const game = await Game.findOne({ _id: id, isActive: true })
-      .populate('createdBy', 'name email');
-
-    if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
-    }
-
-    res.json({ game });
-  } catch (error) {
-    console.error('Get game by ID error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-const validateGameUser = async (req, res) => {
-  try {
-    const { gameId, userId, serverId } = req.body;
-    
-    const game = await Game.findById(gameId);
-    if (!game) {
-      return res.status(404).json({ message: 'Game not found' });
-    }
-
-    const validationResult = await apiService.validateUser(
-      game.apiProvider,
-      game.apiGameId,
-      userId,
-      serverId
-    );
-
-    res.json({ 
-      valid: true, 
-      userInfo: validationResult,
-      message: 'User validated successfully' 
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Pack deleted successfully',
+      game
     });
   } catch (error) {
-    console.error('User validation error:', error);
-    res.status(400).json({ 
-      valid: false, 
-      message: error.message || 'Failed to validate user' 
+    console.error('Error deleting pack:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error deleting pack',
+      error: error.message
     });
   }
 };
 
-// Get available products from third-party APIs
+// Get API games from Smile.one
+const getApiGames = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const games = await APIService.getSmileoneGames();
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      games: games || []
+    });
+  } catch (error) {
+    console.error('Error fetching API games:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching API games',
+      error: error.message
+    });
+  }
+};
+
+// Get API servers for a specific product
+const getApiServers = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { product } = req.params;
+    
+    if (!product) {
+      throw new BadRequestError('Product parameter is required');
+    }
+
+    const servers = await APIService.getSmileoneServers(product);
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      servers: servers || []
+    });
+  } catch (error) {
+    console.error('Error fetching API servers:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching API servers',
+      error: error.message
+    });
+  }
+};
+
+// Get API packs for a specific product
+const getApiPacks = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { product } = req.params;
+    
+    if (!product) {
+      throw new BadRequestError('Product parameter is required');
+    }
+
+    const packs = await APIService.getSmileonePacks(product);
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      packs: packs || []
+    });
+  } catch (error) {
+    console.error('Error fetching API packs:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching API packs',
+      error: error.message
+    });
+  }
+};
+
+// Get products from different API providers
 const getApiProducts = async (req, res) => {
   try {
-    const { provider } = req.params;
-
-    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin only.' });
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
     }
 
-    const products = await apiService.getProducts(provider);
-    res.json({ products });
+    const { provider } = req.params;
+    const { productSlug } = req.query;
+
+    const products = await APIService.getProducts(provider, productSlug);
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      products: products || []
+    });
   } catch (error) {
-    console.error('Get API products error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error fetching API products:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error fetching API products',
+      error: error.message
+    });
+  }
+};
+
+// Validate game user across different providers
+const validateGameUser = async (req, res) => {
+  try {
+    const { gameId, userId, serverId, provider } = req.body;
+    
+    if (!gameId || !userId || !provider) {
+      throw new BadRequestError('Game ID, User ID, and provider are required');
+    }
+
+    const validationResult = await APIService.validateUser(provider, gameId, userId, serverId);
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      valid: validationResult?.status === 'success' || validationResult?.code === 200,
+      data: validationResult
+    });
+  } catch (error) {
+    console.error('Error validating user:', error);
+    res.status(StatusCodes.OK).json({
+      success: false,
+      valid: false,
+      message: 'User validation failed',
+      error: error.message
+    });
   }
 };
 
 module.exports = {
+  getAllGames,
+  getGameById,
   createGame,
   updateGame,
   deleteGame,
   addPackToGame,
   updatePack,
   deletePack,
-  getAllGames,
-  getGameById,
-  validateGameUser,
-  getApiProducts
+  getApiGames,
+  getApiServers,
+  getApiPacks,
+  getApiProducts,
+  validateGameUser
 };

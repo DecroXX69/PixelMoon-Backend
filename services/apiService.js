@@ -1,67 +1,210 @@
-// services/apiService.js
+// services/apiService.js - Fixed version
 const axios = require('axios');
+const crypto = require('crypto');
 
 class APIService {
   constructor() {
-    this.apiKeys = {
-      smileone: '8a03fb3afc7cb8342fcf954a44b2f0c8',
-      yokcash: 'APIH3MEDX1746109623999',
-      hopestore: 'API9BX6XW1747642730999'
+    this.apiKeys = { 
+      smileone: process.env.SMILEONE_SECRET,
+      yokcash: process.env.YOKCASH_API_KEY,
+      hopestore: process.env.HOPESTORE_API_KEY
     };
 
     this.baseUrls = {
-      smileone: 'https://api.smile.one/v1',
+      smileone: process.env.SMILEONE_BASE_URL || 'https://www.smile.one/br/smilecoin/api',
       yokcash: 'https://api.yokcash.com/v1',
       hopestore: 'https://api.hopestore.id/v1'
     };
+
+    // Fix: Add smileone credentials object
+    this.smileone = {
+      uid: process.env.SMILEONE_UID,
+      email: process.env.SMILEONE_EMAIL,
+      secret: process.env.SMILEONE_SECRET
+    };
   }
+
+
+// ...existing code...
+
+  // Universal verifyUserId for all providers
+  async verifyUserId(provider, gameId, userId, serverId = null) {
+    switch (provider) {
+      case 'smile.one':
+        return await this.validateSmileoneUser({
+          product: gameId,
+          productid: '',
+          userid: userId,
+          zoneid: serverId || ''
+        });
+      case 'yokcash':
+        try {
+          const payload = { game_id: gameId, user_id: userId };
+          if (serverId) payload.server_id = serverId;
+          const response = await axios.post(
+            `${this.baseUrls.yokcash}/validate`,
+            payload,
+            {
+              headers: {
+                'X-API-KEY': this.apiKeys.yokcash,
+                'Content-Type': 'application/json'
+              },
+              timeout: 10000
+            }
+          );
+          return response.data;
+        } catch (error) {
+          console.error('Yokcash verifyUserId error:', error.response?.data || error.message);
+          throw new Error('Failed to verify Yokcash user ID');
+        }
+      case 'hopestore':
+        try {
+          const payload = { game_id: gameId, user_id: userId };
+          if (serverId) payload.server_id = serverId;
+          const response = await axios.post(
+            `${this.baseUrls.hopestore}/validate`,
+            payload,
+            {
+              headers: {
+                'apikey': this.apiKeys.hopestore,
+                'Content-Type': 'application/json'
+              },
+              timeout: 10000
+            }
+          );
+          return response.data;
+        } catch (error) {
+          console.error('Hopestore verifyUserId error:', error.response?.data || error.message);
+          throw new Error('Failed to verify Hopestore user ID');
+        }
+      default:
+        throw new Error('Invalid API provider');
+    }
+  }
+
+// ...existing code...
+
 
   // Smile.one API Integration
-  async getSmileoneProducts() {
+  async getSmileoneGames() {
     try {
-      const response = await axios.get(`${this.baseUrls.smileone}/products`, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKeys.smileone}`,
-          'Content-Type': 'application/json'
-        }
+      const url = `${this.baseUrls.smileone}/product`;
+      const { uid, email, secret } = this.smileone;
+      const time = Math.floor(Date.now()/1000);
+      const params = { uid, email, time, product: '' }; // product blank returns all titles
+      const sign = this._buildSign(params, secret);
+      const body = new URLSearchParams({ ...params, sign });
+      
+      const resp = await axios.post(url, body, { 
+        headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+        timeout: 10000
       });
-      return response.data;
+      
+      return resp.data;  // array of { name: "mobilelegends", … }
     } catch (error) {
-      console.error('Smile.one API Error:', error.response?.data || error.message);
-      throw new Error('Failed to fetch Smile.one products');
+      console.error('Smile.one games fetch error:', error.response?.data || error.message);
+      throw new Error('Failed to fetch Smile.one games');
     }
   }
 
-  async validateSmileoneUser(gameId, userId) {
+  async getSmileoneServers(product) {
     try {
-      const response = await axios.post(`${this.baseUrls.smileone}/validate`, {
-        game_id: gameId,
-        user_id: userId
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKeys.smileone}`,
-          'Content-Type': 'application/json'
-        }
+      const url = `${this.baseUrls.smileone}/getserver`;
+      const { uid, email, secret } = this.smileone;
+      const time = Math.floor(Date.now()/1000);
+      const params = { uid, email, product, time };
+      const sign = this._buildSign(params, secret);
+      const body = new URLSearchParams({ ...params, sign });
+      
+      const resp = await axios.post(url, body, { 
+        headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+        timeout: 10000
       });
-      return response.data;
+      
+      return resp.data.server_list || []; // array of { server_id, server_name }
     } catch (error) {
-      console.error('Smile.one User Validation Error:', error.response?.data || error.message);
-      throw new Error('Failed to validate user');
+      console.error('Smile.one servers fetch error:', error.response?.data || error.message);
+      return []; // Return empty array instead of throwing
     }
   }
 
-  async processSmileoneOrder(orderData) {
+  async getSmileonePacks(product) {
     try {
-      const response = await axios.post(`${this.baseUrls.smileone}/order`, orderData, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKeys.smileone}`,
-          'Content-Type': 'application/json'
-        }
+      const url = `${this.baseUrls.smileone}/productlist`;
+      const { uid, email, secret } = this.smileone;
+      const time = Math.floor(Date.now()/1000);
+      const params = { uid, email, product, time };
+      const sign = this._buildSign(params, secret);
+      const body = new URLSearchParams({ ...params, sign });
+      
+      const resp = await axios.post(url, body, { 
+        headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+        timeout: 10000
       });
-      return response.data;
+      
+      return resp.data.data?.product || []; // array of { id, spu, price }
     } catch (error) {
-      console.error('Smile.one Order Error:', error.response?.data || error.message);
-      throw new Error('Failed to process order');
+      console.error('Smile.one packs fetch error:', error.response?.data || error.message);
+      return []; // Return empty array instead of throwing
+    }
+  }
+
+  _buildSign(params, secret) {
+    const sorted = Object.keys(params).sort();
+    let str = sorted.map(k => `${k}=${params[k]}`).join('&') + `&${secret}`;
+    const first = crypto.createHash('md5').update(str).digest('hex');
+    return crypto.createHash('md5').update(first).digest('hex');
+  }
+
+  /** Validate a user via Smile.one getrole */
+  async validateSmileoneUser({ product, productid, userid, zoneid }) {
+    try {
+      const url = `${this.baseUrls.smileone}/getrole`;
+      const { uid, email, secret } = this.smileone;
+      const time = Math.floor(Date.now()/1000);
+      const params = { uid, email, product, productid, userid, zoneid, time };
+      const sign = this._buildSign(params, secret);
+      const body = new URLSearchParams({ ...params, sign });
+      
+      const ok = validationResult.status === 200;
+res.status(ok ? 200 : 400).json({
+  success: ok,
+  valid:   ok,
+  data:    validationResult
+});
+
+      
+      const { data } = await axios.post(url, body, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 10000
+      });
+      
+      return data;
+    } catch (error) {
+      console.error('Smile.one user validation error:', error.response?.data || error.message);
+      throw new Error('Failed to validate Smile.one user');
+    }
+  }
+
+  /** Create an order via Smile.one createorder */
+  async processSmileoneOrder({ product, productid, userid, zoneid, orderid }) {
+    try {
+      const url = `${this.baseUrls.smileone}/createorder`;
+      const { uid, email, secret } = this.smileone;
+      const time = Math.floor(Date.now()/1000);
+      const params = { uid, email, product, productid, userid, zoneid, time };
+      const sign = this._buildSign(params, secret);
+      const body = new URLSearchParams({ ...params, sign, orderid });
+      
+      const { data } = await axios.post(url, body, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 15000
+      });
+      
+      return data;
+    } catch (error) {
+      console.error('Smile.one order processing error:', error.response?.data || error.message);
+      throw new Error('Failed to process Smile.one order');
     }
   }
 
@@ -72,7 +215,8 @@ class APIService {
         headers: {
           'X-API-KEY': this.apiKeys.yokcash,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000
       });
       return response.data;
     } catch (error) {
@@ -96,7 +240,8 @@ class APIService {
         headers: {
           'X-API-KEY': this.apiKeys.yokcash,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000
       });
       return response.data;
     } catch (error) {
@@ -111,7 +256,8 @@ class APIService {
         headers: {
           'X-API-KEY': this.apiKeys.yokcash,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 15000
       });
       return response.data;
     } catch (error) {
@@ -127,7 +273,8 @@ class APIService {
         headers: {
           'apikey': this.apiKeys.hopestore,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000
       });
       return response.data;
     } catch (error) {
@@ -151,7 +298,8 @@ class APIService {
         headers: {
           'apikey': this.apiKeys.hopestore,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000
       });
       return response.data;
     } catch (error) {
@@ -166,7 +314,8 @@ class APIService {
         headers: {
           'apikey': this.apiKeys.hopestore,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 15000
       });
       return response.data;
     } catch (error) {
@@ -176,10 +325,10 @@ class APIService {
   }
 
   // Universal methods that route to appropriate API
-  async getProducts(provider) {
+  async getProducts(provider, productSlug) {
     switch (provider) {
       case 'smile.one':
-        return await this.getSmileoneProducts();
+        return await this.getSmileonePacks(productSlug);
       case 'yokcash':
         return await this.getYokcashProducts();
       case 'hopestore':
@@ -192,7 +341,13 @@ class APIService {
   async validateUser(provider, gameId, userId, serverId = null) {
     switch (provider) {
       case 'smile.one':
-        return await this.validateSmileoneUser(gameId, userId);
+        // Fix: Smile.one expects different parameter structure
+        return await this.validateSmileoneUser({
+          product: gameId,
+          productid: '', // Pack ID if needed
+          userid: userId,
+          zoneid: serverId || ''
+        });
       case 'yokcash':
         return await this.validateYokcashUser(gameId, userId, serverId);
       case 'hopestore':
@@ -214,6 +369,34 @@ class APIService {
         throw new Error('Invalid API provider');
     }
   }
+
+  // Test method for API connectivity
+  async testConnection(provider) {
+    try {
+      switch (provider) {
+        case 'smile.one':
+          await this.getSmileoneGames();
+          return { success: true, message: 'Smile.one connection successful' };
+        case 'yokcash':
+          await this.getYokcashProducts();
+          return { success: true, message: 'Yokcash connection successful' };
+        case 'hopestore':
+          await this.getHopestoreProducts();
+          return { success: true, message: 'Hopestore connection successful' };
+        default:
+          throw new Error('Invalid provider for testing');
+      }
+    } catch (error) {
+      return { 
+        success: false, 
+        message: `${provider} connection failed: ${error.message}` 
+      };
+    }
+  }
+
+
+
+
 }
 
 module.exports = new APIService();
