@@ -105,7 +105,7 @@ const orderSchema = new mongoose.Schema({
 });
 
 // Generate unique order ID
-orderSchema.pre('save', async function(next) {
+orderSchema.pre('validate', async function(next) {
   if (!this.orderId) {
     const timestamp = Date.now().toString();
     const random = Math.random().toString(36).substring(2, 8).toUpperCase();

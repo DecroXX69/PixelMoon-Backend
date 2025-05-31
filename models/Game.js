@@ -39,7 +39,8 @@ const gameSchema = new mongoose.Schema({
   packs: [{
     packId: {
       type: String,
-      required: true
+      required: true,
+      set: v => v.trim()
     },
     name: {
       type: String,

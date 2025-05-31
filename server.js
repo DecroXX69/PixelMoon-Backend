@@ -62,6 +62,9 @@ app.use(express.json());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/games', gameRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/v1/balances', require('./routes/balanceRoutes'));
+// server.js (or app.js)
+app.use('/api/v1/orders', require('./routes/orderRoutes'));
 
 
 

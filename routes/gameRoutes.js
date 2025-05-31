@@ -3,11 +3,19 @@ const express = require('express');
 const router = express.Router();
 const gameController = require('../controllers/gameController');
 const { authenticateUser } = require('../middleware/authMiddleware'); // Assuming you have auth middleware
+// const validateGame = require('../middleware/validateGame');
+const rateLimit = require('express-rate-limit');
+
+const verifyLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 10,              // limit each IP to 10 requests per minute
+  message: 'Too many verify attempts, please wait 1 minute.'
+});
 
 // Public routes
 router.get('/', gameController.getAllGames);
 router.get('/:id', gameController.getGameById);
-router.post('/validate-user', authenticateUser, gameController.validateGameUser);
+router.post('/validate-user', authenticateUser, verifyLimiter, gameController.validateGameUser);
 
 // Admin routes (protected)
 router.post('/', authenticateUser, gameController.createGame);
