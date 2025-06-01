@@ -59,12 +59,12 @@ app.use('/api', limiter);
 app.use(express.json());
 
 // Routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/games', gameRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/games', gameRoutes);
 app.use('/api/test', testRoutes);
-app.use('/api/v1/balances', require('./routes/balanceRoutes'));
+app.use('/api/balances', require('./routes/balanceRoutes'));
 // server.js (or app.js)
-app.use('/api/v1/orders', require('./routes/orderRoutes'));
+app.use('/api/orders', require('./routes/orderRoutes'));
 
 
 

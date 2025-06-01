@@ -12,8 +12,8 @@ class APIService {
 
     this.baseUrls = {
       smileone: process.env.SMILEONE_BASE_URL || 'https://www.smile.one/br/smilecoin/api',
-      yokcash: 'https://api.yokcash.com/v1',
-      hopestore: 'https://api.hopestore.id/v1'
+      yokcash: 'https://a-api.yokcash.com/api',
+      hopestore: 'https://a-api.hopestore.id/api'
     };
 
     // Fix: Add smileone credentials object
@@ -24,59 +24,6 @@ class APIService {
     };
   }
 
-
-// ...existing code...
-
-  // Universal verifyUserId for all providers
-  async verifyUserId(provider, gameId, userId, serverId = null) {
-    switch (provider) {
-      case 'smile.one':
-        return await this.validateSmileoneUser({
-          product: gameId,
-          productid: '',
-          userid: userId,
-          zoneid: serverId || ''
-        });
-      case 'yokcash':
-        try {
-          const payload = { game_id: gameId, user_id: userId };
-          if (serverId) payload.server_id = serverId;
-          const response = await axios.post(
-            `${this.baseUrls.yokcash}/validate`,
-            payload,
-            {
-             params: { api_key: this.apiKeys.yokcash },
-              timeout: 10000
-            }
-          );
-          return response.data;
-        } catch (error) {
-          console.error('Yokcash verifyUserId error:', error.response?.data || error.message);
-          throw new Error('Failed to verify Yokcash user ID');
-        }
-      case 'hopestore':
-        try {
-          const payload = { game_id: gameId, user_id: userId };
-          if (serverId) payload.server_id = serverId;
-          const response = await axios.post(
-            `${this.baseUrls.hopestore}/validate`,
-            payload,
-            {
-              params: { api_key: this.apiKeys.hopestore },
-              timeout: 10000
-            }
-          );
-          return response.data;
-        } catch (error) {
-          console.error('Hopestore verifyUserId error:', error.response?.data || error.message);
-          throw new Error('Failed to verify Hopestore user ID');
-        }
-      default:
-        throw new Error('Invalid API provider');
-    }
-  }
-
-// ...existing code...
 
 
   // Smile.one API Integration
@@ -204,42 +151,29 @@ res.status(ok ? 200 : 400).json({
 
   // Yokcash API Integration
 async getYokcashProducts() {
-  try {
-    // POST with URL-encoded api_key
-    const url = 'https://a-api.yokcash.com/v1/products';
-    const body = new URLSearchParams({ api_key: this.apiKeys.yokcash });
-    const response = await axios.post(url, body.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 10000
-    });
-    return response.data; // { status: true, data: [ ... ] }
-  } catch (error) {
-    console.error('Yokcash API Error:', error.response?.data || error.message);
-    throw new Error('Failed to fetch Yokcash products');
-  }
-}
+    try {
+      // POST to https://a-api.yokcash.com/api/service (URL‐encoded)
+      const url = `${this.baseUrls.yokcash}/service`;
+      const body = new URLSearchParams({ api_key: this.apiKeys.yokcash });
+      const response = await axios.post(
+        url,
+        body.toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+      );
 
-
-  async validateYokcashUser(gameId, userId, serverId = null) {
-   try {
-     // Per Yokcash docs, this must be URL-encoded form data:
-     const url = `${this.baseUrls.yokcash}/validate`;
-     const body = new URLSearchParams({
-       api_key: this.apiKeys.yokcash,
-       game_id: gameId,
-       user_id: userId,
-       ...(serverId && { server_id: serverId })
-     });
-     const response = await axios.post(url, body.toString(), {
-       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-       timeout: 10000
-     });
-     return response.data;
-   } catch (error) {
-     console.error('Yokcash User Validation Error:', error.response?.data || error.message);
-      throw new Error('Failed to validate user');
+      // response.data should be something like { status: true, data: [ … ] }
+      if (!response.data || typeof response.data !== 'object') {
+        console.error('Yokcash returned unexpected payload:', response.data);
+        throw new Error('Yokcash did not return JSON');
+      }
+      return response.data; 
+    } catch (error) {
+      console.error('Yokcash API Error:', error.response?.data || error.message);
+      throw new Error('Failed to fetch Yokcash products');
     }
   }
+
+
 
     async processYokcashOrder(orderData) {
     try {
@@ -263,10 +197,33 @@ async getYokcashProducts() {
     }
   }
 
+  async processYokcashOrder(orderData) {
+    try {
+      // POST to https://a-api.yokcash.com/api/order
+      const url = `${this.baseUrls.yokcash}/order`;
+      const body = new URLSearchParams({
+        api_key:    this.apiKeys.yokcash,
+        service_id: orderData.service_id,
+        target:     orderData.target,
+        contact:    orderData.contact,
+        idtrx:      orderData.idtrx
+      });
+      const response = await axios.post(
+        url,
+        body.toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Yokcash Order Error:', error.response?.data || error.message);
+      throw new Error('Failed to process Yokcash order');
+    }
+  }
+
   async getYokcashOrderStatus(orderId) {
     try {
-      const url = 'https://a-api.yokcash.com/v1/status';
-      // Per Yokcash docs: POST with URL‐encoded api_key & order_id
+      // POST to https://a-api.yokcash.com/api/status
+      const url = `${this.baseUrls.yokcash}/status`;
       const body = new URLSearchParams({
         api_key:  this.apiKeys.yokcash,
         order_id: orderId
@@ -274,32 +231,32 @@ async getYokcashProducts() {
       const response = await axios.post(
         url,
         body.toString(),
-        { 
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          timeout: 10000 
-        }
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
       );
       return response.data;
     } catch (error) {
-      console.error(
-        'Yokcash getOrderStatus Error:',
-        error.response?.data || error.message
-      );
+      console.error('Yokcash getOrderStatus Error:', error.response?.data || error.message);
       throw new Error('Failed to fetch Yokcash order status');
     }
   }
 
   // Hopestore API Integration
- async getHopestoreProducts() {
+async getHopestoreProducts() {
   try {
-    // Hopestore docs say: POST to /api/service with URL-encoded { api_key }
-    const url = 'https://a-api.hopestore.id/api/service';
+    // POST to https://a-api.hopestore.id/api/service
+    const url = `${this.baseUrls.hopestore}/service`;
     const body = new URLSearchParams({ api_key: this.apiKeys.hopestore });
-    const response = await axios.post(url, body.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 10000
-    });
-    return response.data; // { status, msg, data: [ ...services ] }
+    const response = await axios.post(
+      url,
+      body.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+    );
+    // response.data should look like { status: true, msg: "...", data: [ … ] }
+    if (!response.data || typeof response.data !== 'object') {
+      console.error('Hopestore returned unexpected payload:', response.data);
+      throw new Error('Hopestore did not return JSON');
+    }
+    return response.data;
   } catch (error) {
     console.error('Hopestore API Error:', error.response?.data || error.message);
     throw new Error('Failed to fetch Hopestore products');
@@ -307,27 +264,7 @@ async getYokcashProducts() {
 }
 
 
-    async validateHopestoreUser(gameId, userId, serverId = null) {
-    try {
-      // Hopestore /validate expects URL-encoded form:
-      const url = `${this.baseUrls.hopestore}/api/validate`;
-      const body = new URLSearchParams({
-        api_key:  this.apiKeys.hopestore,
-        service_id: gameId,    // “service_id” or “game_id” depending on their docs
-        target:     serverId 
-                     ? `${userId}|${serverId}` 
-                     : `${userId}`
-      });
-      const response = await axios.post(url, body.toString(), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 10000
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Hopestore User Validation Error:', error.response?.data || error.message);
-      throw new Error('Failed to validate user');
-    }
-  }
+
    async processHopestoreOrder(orderData) {
     try {
       // Hopestore /order expects URL-encoded form:
@@ -449,18 +386,34 @@ async getYokcashProducts() {
   }
 
 // Yokcash balance
-async getYokcashBalance() {
-  const res = await axios.get(`${this.baseUrls.yokcash}/saldo`, {
-    params: { api_key: this.apiKeys.hopestore },
-  });
-  return res.data; // { status, msg, data }
-}
+ async getYokcashBalance() {
+    try {
+      // POST to https://a-api.yokcash.com/api/saldo
+      const url = `${this.baseUrls.yokcash}/saldo`;
+      const body = new URLSearchParams({ api_key: this.apiKeys.yokcash });
+      const res = await axios.post(
+        url,
+        body.toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+      );
+      return res.data; // { status: true/false, msg: "...", data: <balance> }
+    } catch (error) {
+      console.error('Yokcash getBalance Error:', error.response?.data || error.message);
+      throw new Error('Failed to fetch Yokcash balance');
+    }
+  }
+
 
 // Hopestore balance (assuming similar)
 async getHopestoreBalance() {
-  const res = await axios.get(`${this.baseUrls.hopestore}/saldo`, {
-    params: { api_key: this.apiKeys.hopestore },
-  });
+  // Use the “a-api.hopestore.id” host (per their docs) instead of “api.hopestore.id”
+  const url = 'https://a-api.hopestore.id/api/saldo';
+  const res = await axios.post(
+    url,
+    new URLSearchParams({ api_key: this.apiKeys.hopestore }).toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  // Their response is { status: true/false, msg: “…”, data: <balanceNumber> }
   return res.data;
 }
 
