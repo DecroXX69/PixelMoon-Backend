@@ -1,6 +1,6 @@
 require('dotenv').config();
 require('express-async-errors');
-
+const voucherRouter = require('./routes/voucherRoutes');
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -25,7 +25,7 @@ const allowedOrigins = [
   ];
 // Security middleware
 app.use(helmet());
-
+const { authenticateUser } = require('./middleware/authMiddleware');
   
 
 app.use(cors({
@@ -47,13 +47,13 @@ app.use(mongoSanitize());
 
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api', limiter);
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // Limit each IP to 100 requests per windowMs
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
+// app.use('/api', limiter);
 
 // Express middleware
 app.use(express.json());
@@ -65,7 +65,7 @@ app.use('/api/test', testRoutes);
 app.use('/api/balances', require('./routes/balanceRoutes'));
 // server.js (or app.js)
 app.use('/api/orders', require('./routes/orderRoutes'));
-
+app.use('/api/vouchers', authenticateUser, voucherRouter);
 
 
 
