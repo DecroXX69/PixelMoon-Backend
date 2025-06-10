@@ -37,6 +37,20 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+   gender: {
+    type: String,
+    enum: ['male','female','other'],
+    default: 'other'
+  },
+  state: {
+    type: String,
+    trim: true
+  },
+  phone: {
+    type: String,
+    match: [/^\d{10}$/, 'Please provide a valid 10-digit phone number'],
+    unique: true,
+  }
 }, {
   timestamps: true,
 });

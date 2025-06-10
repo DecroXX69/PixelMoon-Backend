@@ -133,10 +133,71 @@ const createAdmin = async (req, res) => {
   });
 };
 
+const getAllUsers = async (req, res) => {
+  // Only allow admin access
+  if (req.user.role !== 'admin') {
+    throw new UnauthenticatedError('Access denied. Admin only.');
+  }
+
+  const users = await User.find({}).select('-password');
+  res.status(StatusCodes.OK).json({ users });
+};
+
+const updateUserRole = async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+  
+  if (req.user.role !== 'admin') {
+    throw new UnauthenticatedError('Access denied. Admin only.');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { role },
+    { new: true }
+  ).select('-password');
+
+  if (!user) {
+    throw new BadRequestError('User not found');
+  }
+
+  res.status(StatusCodes.OK).json({ user });
+};
+
+
+const updateProfile = async (req, res) => {
+  const { name, gender, state, password } = req.body;
+  const userId = req.user.userId;
+
+  const updateData = {};
+  if (name) updateData.name = name;
+  if (gender) updateData.gender = gender;
+  if (state) updateData.state = state;
+  if (password) updateData.password = password;
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    updateData,
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  if (!user) {
+    throw new BadRequestError('User not found');
+  }
+
+  res.status(StatusCodes.OK).json({
+    message: 'Profile updated successfully',
+    user
+  });
+};
+
 module.exports = {
   register,
   login,
   getCurrentUser,
   promoteToReseller,
   createAdmin,
+  getAllUsers,
+  updateUserRole,
+  updateProfile,
 };

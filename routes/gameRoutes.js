@@ -27,12 +27,12 @@ router.post('/:id/packs', authenticateUser, gameController.addPackToGame);
 router.put('/:id/packs/:packId', authenticateUser, gameController.updatePack);
 router.delete('/:id/packs/:packId', authenticateUser, gameController.deletePack);
 
-
+//SmileOne API routes
 router.get('/api-games/smileone', authenticateUser, gameController.getApiGames);
 router.get('/api-servers/:product', authenticateUser, gameController.getApiServers);
 router.get('/api-packs/:product', authenticateUser, gameController.getApiPacks);
 
-// API integration routes
+// API integration routes Yokcash and Hopestore
 router.get('/api-products/:provider', authenticateUser, gameController.getApiProducts);
 
 // ...existing code...

@@ -1,7 +1,13 @@
 // services/apiService.js - Fixed version
 const axios = require('axios');
 const crypto = require('crypto');
+const FormData   = require('form-data');
 
+const FALLBACK_PRODUCTS = [
+  "mobilelegends","bigo","hago","ragnarokm","freefirediamantes",
+  "loveanddeepspace","watcherofrealms","sweetdance","supersus",
+  "pubgmobile","tinder","hok","honkai"
+];
 class APIService {
   constructor() {
     this.apiKeys = { 
@@ -24,29 +30,47 @@ class APIService {
     };
   }
 
+_buildSign(params, secret) {
+  // Grab the values in the right order
+  const { uid, email, product, time } = params;
+  // Concatenate them with nothing in between
+  const raw = `${uid}${email}${product}${time}${secret}`;
+  console.log('Signing string:', raw);
+  // One MD5 round, hex lowercase
+  return crypto.createHash('md5').update(raw).digest('hex');
+}
 
 
   // Smile.one API Integration
   async getSmileoneGames() {
+    const url = `${this.baseUrls.smileone}/product`;
+    const { uid, email, secret } = this.smileone;
+    const time = Math.floor(Date.now()/1000);
+    const params = { uid, email, product: '', time };
+    const sign   = this._buildSign(params, secret);
+    const body   = new URLSearchParams({ ...params, sign }).toString();
+
     try {
-      const url = `${this.baseUrls.smileone}/product`;
-      const { uid, email, secret } = this.smileone;
-      const time = Math.floor(Date.now()/1000);
-      const params = { uid, email, time, product: '' }; // product blank returns all titles
-      const sign = this._buildSign(params, secret);
-      const body = new URLSearchParams({ ...params, sign });
-      
-      const resp = await axios.post(url, body, { 
+      const resp = await axios.post(url, body, {
         headers: { 'Content-Type':'application/x-www-form-urlencoded' },
-        timeout: 10000
+        timeout: 10_000
       });
-      
-      return resp.data;  // array of { name: "mobilelegends", … }
-    } catch (error) {
-      console.error('Smile.one games fetch error:', error.response?.data || error.message);
-      throw new Error('Failed to fetch Smile.one games');
+
+      // If they return a non-empty array, use it
+      if (Array.isArray(resp.data) && resp.data.length > 0) {
+        return resp.data;
+      }
+
+      // Otherwise fall back to our static list
+      return FALLBACK_PRODUCTS.map(name => ({ name }));
+
+    } catch (err) {
+      console.error('Smile.one fetch error:', err.response?.data || err.message);
+      // on any error, also fall back
+      return FALLBACK_PRODUCTS.map(name => ({ name }));
     }
   }
+
 
   async getSmileoneServers(product) {
     try {
@@ -90,12 +114,7 @@ class APIService {
     }
   }
 
-  _buildSign(params, secret) {
-    const sorted = Object.keys(params).sort();
-    let str = sorted.map(k => `${k}=${params[k]}`).join('&') + `&${secret}`;
-    const first = crypto.createHash('md5').update(str).digest('hex');
-    return crypto.createHash('md5').update(first).digest('hex');
-  }
+ 
 
   /** Validate a user via Smile.one getrole */
   async validateSmileoneUser({ product, productid, userid, zoneid }) {
