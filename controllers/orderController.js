@@ -1,11 +1,11 @@
-// controllers/orderController.js
+// controllers/orderController.js - Updated with wallet integration
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Game = require('../models/Game');
 const APIService = require('../services/apiService');
+const { spendFromWallet, refundToWallet } = require('./walletController');
 const { StatusCodes } = require('http-status-codes');
 const { BadRequestError, NotFoundError, UnauthorizedError } = require('../errors');
-
 
 const getWeekBoundaries = (date = new Date()) => {
   const now = new Date(date);
@@ -24,19 +24,17 @@ const getWeekBoundaries = (date = new Date()) => {
 }
 
 const OrderController = {
-//
-// 1) createOrder: creates a new Order doc, calls the third-party API, and saves the API response.
-//
-createOrder : async (req, res) => {
+
+createOrder: async (req, res) => {
   try {
-    const userId = req.user.userId;  // from authenticateUser middleware
+    const userId = req.user.userId;
     const {
       gameId,
       packId,
       gameUserInfo,   // { userId: inGameUserId, serverId: optional }
-      paymentInfo,    // { method, transactionId, amount, currency }
+      paymentInfo,    // { method: 'wallet'|'phonepe'|'other', transactionId, amount, currency }
       provider,       // 'smile.one' | 'yokcash' | 'hopestore'
-      contact         // for Yokcash/Hopestore: phone number, e.g. '62815xxxxxx'
+      contact         // for Yokcash/Hopestore: phone number
     } = req.body;
 
     // 1a) Validate required fields
@@ -54,26 +52,32 @@ createOrder : async (req, res) => {
     const pack = game.packs.find(p => p.packId === packId);
     if (!pack) throw new NotFoundError('Pack not found');
 
-    // 1d) Create an Order document (pending) – we'll fill apiOrder after
+    // 1d) Validate payment amount matches pack price
+    const expectedAmount = pack.price || pack.amount;
+    if (paymentInfo.amount !== expectedAmount) {
+      throw new BadRequestError(`Payment amount mismatch. Expected: ${expectedAmount}, Got: ${paymentInfo.amount}`);
+    }
+
+    // 1e) Create an Order document (pending)
     const newOrder = new Order({
       user: userId,
       game: gameId,
       pack: {
-        packId:      pack.packId,
-        name:        pack.name,
-        amount:      pack.amount,
-        price:       paymentInfo.amount,
-        costPrice:   pack.costPrice
+        packId: pack.packId,
+        name: pack.name,
+        amount: pack.amount,
+        price: paymentInfo.amount,
+        costPrice: pack.costPrice
       },
       gameUserInfo: {
         userId: inGameUserId,
         serverId: serverId
       },
       paymentInfo: {
-        method:        paymentInfo.method,
+        method: paymentInfo.method,
         transactionId: paymentInfo.transactionId || '', 
-        amount:        paymentInfo.amount,
-        currency:      paymentInfo.currency || 'INR'
+        amount: paymentInfo.amount,
+        currency: paymentInfo.currency || 'INR'
       },
       apiOrder: {
         provider: provider,
@@ -84,67 +88,151 @@ createOrder : async (req, res) => {
     });
     await newOrder.save();
 
-    // 2) Call the third-party API depending on provider
-    let apiResponse, apiOrderId;
-    switch (provider) {
-      case 'smile.one': {
-        // Smile.one createorder expects URL-encoded form with uid, email, product, productid, userid, zoneid, time, sign, orderid
-        const payload = {
-          product:   game.apiGameId,    // e.g., 'mobilelegends'
-          productid: pack.packId,
-          userid:    inGameUserId,
-          zoneid:    serverId || '',
-          orderid:   newOrder.orderId  // use our generated orderId as external reference
-        };
-        apiResponse = await APIService.processSmileoneOrder(payload);
-        apiOrderId = apiResponse.order_id; // Smile.one returns {status:200, order_id: '...' }
-        break;
+    // 2) Handle wallet payment first if method is wallet
+    if (paymentInfo.method === 'wallet') {
+      try {
+        const amountPaise = Math.round(paymentInfo.amount * 100);
+        const walletTransaction = await spendFromWallet(
+          userId, 
+          amountPaise, 
+          newOrder._id, 
+          `Game purchase: ${game.name} - ${pack.name}`
+        );
+
+        // Update order with wallet transaction info
+        newOrder.paymentInfo.transactionId = walletTransaction.transactionId;
+        newOrder.paymentInfo.walletTransactionId = walletTransaction._id;
+        newOrder.status = 'paid'; // Mark as paid since wallet deduction succeeded
+        await newOrder.save();
+
+      } catch (walletError) {
+        // Wallet payment failed
+        newOrder.status = 'failed';
+        newOrder.failureReason = walletError.message;
+        await newOrder.save();
+
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          success: false,
+          message: walletError.message,
+          order: newOrder
+        });
       }
-      case 'yokcash': {
-        // Yokcash /order requires URL-encoded: api_key, service_id, target, contact, idtrx
-        const service_id = pack.packId;
-        const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
-        const body = {
-          service_id,
-          target,
-          contact: contact || '',
-          idtrx: newOrder.orderId 
-        };
-        apiResponse = await APIService.processYokcashOrder(body);
-        apiOrderId = apiResponse.data?.id || '';  
-        break;
-      }
-      case 'hopestore': {
-        // Hopestore /order: api_key, service_id, target, contact, idtrx
-        const service_id = pack.packId;
-        const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
-        const body = {
-          service_id,
-          target,
-          contact: contact || '',
-          idtrx: newOrder.orderId 
-        };
-        apiResponse = await APIService.processHopestoreOrder(body);
-        apiOrderId = apiResponse.data?.id || '';
-        break;
-      }
-      default:
-        throw new BadRequestError('Invalid API provider');
     }
 
-    // 3) Update our Order doc with the API's response
-    newOrder.apiOrder.apiOrderId = apiOrderId;
-    newOrder.apiOrder.apiResponse = apiResponse;
-    newOrder.status = apiResponse.status === true || apiResponse.status === 200 
-                       ? 'processing' 
-                       : 'failed';
-    await newOrder.save();
+    // 3) Call the third-party API (only if payment succeeded or non-wallet)
+    if (newOrder.status === 'paid' || paymentInfo.method !== 'wallet') {
+      let apiResponse, apiOrderId;
+      try {
+        switch (provider) {
+          case 'smile.one': {
+            const payload = {
+              product: game.apiGameId,
+              productid: pack.packId,
+              userid: inGameUserId,
+              zoneid: serverId || '',
+              orderid: newOrder.orderId
+            };
+            apiResponse = await APIService.processSmileoneOrder(payload);
+            apiOrderId = apiResponse.order_id;
+            break;
+          }
+          case 'yokcash': {
+            const service_id = pack.packId;
+            const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
+            const body = {
+              service_id,
+              target,
+              contact: contact || '',
+              idtrx: newOrder.orderId 
+            };
+            // In createOrder controller before processing Hopestore order:
+if (!orderData.contact.startsWith('62')) {
+  throw new BadRequestError('Contact must start with country code 62');
+}
+            apiResponse = await APIService.processYokcashOrder(body);
+            apiOrderId = apiResponse.data?.id || '';  
+            break;
+          }
+          case 'hopestore': {
+            const service_id = pack.packId;
+            const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
+            const body = {
+              service_id,
+              target,
+              contact: contact || '',
+              idtrx: newOrder.orderId 
+            };
+            // In createOrder controller before processing Hopestore order:
+if (!orderData.contact.startsWith('62')) {
+  throw new BadRequestError('Contact must start with country code 62');
+}
+            apiResponse = await APIService.processHopestoreOrder(body);
+            apiOrderId = apiResponse.data?.id || '';
+            break;
+          }
+          default:
+            throw new BadRequestError('Invalid API provider');
+        }
 
-    // 4) Return success
+        // 4) Update order with API response
+        newOrder.apiOrder.apiOrderId = apiOrderId;
+        newOrder.apiOrder.apiResponse = apiResponse;
+        
+        // Set final status based on API response
+        if (apiResponse.status === true || apiResponse.status === 200) {
+          newOrder.status = paymentInfo.method === 'wallet' ? 'processing' : 'processing';
+        } else {
+          newOrder.status = 'failed';
+          newOrder.failureReason = apiResponse.message || 'API call failed';
+          
+          // Refund wallet if payment was from wallet
+          if (paymentInfo.method === 'wallet') {
+            try {
+              await refundToWallet(
+                userId, 
+                Math.round(paymentInfo.amount * 100), 
+                newOrder._id, 
+                `Refund for failed order: ${game.name} - ${pack.name}`
+              );
+            } catch (refundError) {
+              console.error('Refund failed:', refundError);
+            }
+          }
+        }
+
+      } catch (apiError) {
+        console.error('API call failed:', apiError);
+        newOrder.status = 'failed';
+        newOrder.failureReason = apiError.message || 'Third-party API failed';
+        
+        // Refund wallet if payment was from wallet
+        if (paymentInfo.method === 'wallet') {
+          try {
+            await refundToWallet(
+              userId, 
+              Math.round(paymentInfo.amount * 100), 
+              newOrder._id, 
+              `Refund for API failure: ${game.name} - ${pack.name}`
+            );
+          } catch (refundError) {
+            console.error('Refund failed:', refundError);
+          }
+        }
+      }
+      // After successful order creation in createOrder:
+newOrder.profit = newOrder.pack.price - newOrder.pack.costPrice;
+
+
+      await newOrder.save();
+    }
+
+    // 5) Return response
     res.status(StatusCodes.CREATED).json({
       success: true,
-      order: newOrder
+      order: newOrder,
+      message: newOrder.status === 'failed' ? 'Order failed' : 'Order created successfully'
     });
+
   } catch (error) {
     console.error('Error creating order:', error);
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -155,16 +243,94 @@ createOrder : async (req, res) => {
   }
 },
 
-//
-// 2) getOrderStatus: look up an existing Order in our DB, then call the appropriate provider's "status" API.
-//
-getOrderStatus : async (req, res) => {
+// Refund order (admin function)
+refundOrder: async (req, res) => {
   try {
-    const { orderId } = req.params; // our internal Order.orderId
+    const { orderId } = req.params;
+    const { reason } = req.body;
+
+    const order = await Order.findOne({ orderId }).populate('user');
+    if (!order) throw new NotFoundError('Order not found');
+
+    if (order.status === 'refunded') {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        success: false,
+        message: 'Order already refunded'
+      });
+    }
+
+    // Only refund completed or failed orders
+    if (!['completed', 'failed'].includes(order.status)) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        success: false,
+        message: 'Order cannot be refunded in current status'
+      });
+    }
+
+    // Process refund if original payment was from wallet
+    if (order.paymentInfo.method === 'wallet') {
+      try {
+        await refundToWallet(
+          order.user._id,
+          Math.round(order.paymentInfo.amount * 100),
+          order._id,
+          `Refund: ${reason || 'Order refund'}`
+        );
+
+        order.status = 'refunded';
+        order.refundInfo = {
+          refundedAt: new Date(),
+          reason: reason || 'Manual refund',
+          refundedBy: req.user.userId
+        };
+        await order.save();
+
+        res.status(StatusCodes.OK).json({
+          success: true,
+          message: 'Order refunded successfully',
+          order
+        });
+
+      } catch (refundError) {
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+          success: false,
+          message: 'Refund processing failed',
+          error: refundError.message
+        });
+      }
+    } else {
+      // For non-wallet payments, just mark as refunded (manual process)
+      order.status = 'refunded';
+      order.refundInfo = {
+        refundedAt: new Date(),
+        reason: reason || 'Manual refund - non-wallet payment',
+        refundedBy: req.user.userId
+      };
+      await order.save();
+
+      res.status(StatusCodes.OK).json({
+        success: true,
+        message: 'Order marked as refunded (manual process required for non-wallet payments)',
+        order
+      });
+    }
+
+  } catch (error) {
+    console.error('Error refunding order:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Error processing refund',
+      error: error.message
+    });
+  }
+},
+
+getOrderStatus: async (req, res) => {
+  try {
+    const { orderId } = req.params;
     const order = await Order.findOne({ orderId });
     if (!order) throw new NotFoundError('Order not found');
 
-    // Ensure the logged-in user owns this order (unless you want admins to see all):
     if (order.user.toString() !== req.user.userId) {
       throw new UnauthorizedError('Not authorized to view this order');
     }
@@ -175,12 +341,9 @@ getOrderStatus : async (req, res) => {
       throw new BadRequestError('No external order ID saved for this order');
     }
 
-    // Call the provider's status endpoint
     let statusRes;
     switch (provider) {
       case 'smile.one': {
-        // Smile.one doesn't have a single "status" endpoint—they return status in the createorder response.
-        // So for Smile.one, we can just echo back what we stored:
         statusRes = {
           status: true,
           msg: 'Use stored API response for Smile.one',
@@ -188,10 +351,11 @@ getOrderStatus : async (req, res) => {
         };
         break;
       }
-      case 'yokcash': {
-        statusRes = await APIService.getYokcashOrderStatus(externalId);
-        break;
-      }
+     // Add in getOrderStatus controller
+case 'yokcash':
+  statusRes = await APIService.getYokcashOrderStatus(externalId);
+  remoteStatus = statusRes.data?.status?.toLowerCase(); // Normalize case
+  break;
       case 'hopestore': {
         statusRes = await APIService.getHopestoreOrderStatus(externalId);
         break;
@@ -200,7 +364,6 @@ getOrderStatus : async (req, res) => {
         throw new BadRequestError('Invalid provider on order');
     }
 
-    // Optionally update our DB order.status based on statusRes.data.status (e.g. "success" → "completed")
     const remoteStatus = statusRes.data?.status;
     if (remoteStatus === 'success' || remoteStatus === 'Success') {
       order.status = 'completed';
@@ -210,6 +373,21 @@ getOrderStatus : async (req, res) => {
     } else if (remoteStatus === 'failed' || remoteStatus === 'error') {
       order.status = 'failed';
       order.failureReason = statusRes.msg || 'Remote failure';
+      
+      // Auto-refund wallet payments on failure
+      if (order.paymentInfo.method === 'wallet' && order.status !== 'refunded') {
+        try {
+          await refundToWallet(
+            order.user,
+            Math.round(order.paymentInfo.amount * 100),
+            order._id,
+            'Auto-refund for failed order'
+          );
+          order.status = 'refunded';
+        } catch (refundError) {
+          console.error('Auto-refund failed:', refundError);
+        }
+      }
     }
     await order.save();
 
@@ -227,10 +405,7 @@ getOrderStatus : async (req, res) => {
   }
 },
 
-//
-// 3) listUserOrders (optional): return all orders for the logged-in user
-//
-listUserOrders : async (req, res) => {
+listUserOrders: async (req, res) => {
   try {
     const userId = req.user.userId;
     const orders = await Order.find({ user: userId })
@@ -251,14 +426,7 @@ listUserOrders : async (req, res) => {
   }
 },
 
-//
-// 4) LEADERBOARD METHODS
-//
-
-// Helper function to get week boundaries (Monday 00:00 to Sunday 23:59)
-
-
-getActiveLeaderboard : async (req, res) => {
+getActiveLeaderboard: async (req, res) => {
   try {
     const { startOfWeek, endOfWeek } = getWeekBoundaries();
 
@@ -304,13 +472,11 @@ getActiveLeaderboard : async (req, res) => {
       }
     ]);
 
-    // Add rank to each user
     const leaderboardWithRank = leaderboard.map((user, index) => ({
       ...user,
       rank: index + 1
     }));
 
-    // Get total users count for this week
     const totalUsersResult = await Order.aggregate([
       {
         $match: {
@@ -351,25 +517,19 @@ getActiveLeaderboard : async (req, res) => {
   }
 },
 
-getLeaderboardResetTime : async (req, res) => {
+getLeaderboardResetTime: async (req, res) => {
   try {
     const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
-    // Calculate next Monday at 00:00
+    const dayOfWeek = now.getDay();
     const daysUntilNextMonday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
     const nextResetTime = new Date(now);
     nextResetTime.setDate(now.getDate() + daysUntilNextMonday);
     nextResetTime.setHours(0, 0, 0, 0);
     
-    // Calculate time difference in milliseconds
     const timeUntilReset = nextResetTime.getTime() - now.getTime();
-    
-    // Convert to days, hours, minutes
     const days = Math.floor(timeUntilReset / (1000 * 60 * 60 * 24));
     const hours = Math.floor((timeUntilReset % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
-    
     const countdownText = `${days}d ${hours}h ${minutes}m`;
 
     res.status(StatusCodes.OK).json({
@@ -395,12 +555,10 @@ getLeaderboardResetTime : async (req, res) => {
   }
 },
 
-getPastLeaderboards : async (req, res) => {
+getPastLeaderboards: async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     
-    // Stub implementation - return empty array for now
-    // You can implement historical leaderboard storage later
     res.status(StatusCodes.OK).json({
       success: true,
       data: {
@@ -423,12 +581,11 @@ getPastLeaderboards : async (req, res) => {
   }
 },
 
-getUserPosition : async (req, res) => {
+getUserPosition: async (req, res) => {
   try {
     const userId = req.user.userId;
     const { startOfWeek, endOfWeek } = getWeekBoundaries();
 
-    // Get user's stats for this week
     const userStats = await Order.aggregate([
       {
         $match: {
@@ -464,7 +621,6 @@ getUserPosition : async (req, res) => {
 
     const { totalSpent, orderCount } = userStats[0];
 
-    // Calculate user's rank by counting users with higher totalSpent
     const rankResult = await Order.aggregate([
       {
         $match: {

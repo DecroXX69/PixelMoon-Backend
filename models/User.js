@@ -1,4 +1,4 @@
-// models/User.js - Updated User model
+// models/User.js - Updated User model with wallet functionality
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -33,11 +33,17 @@ const UserSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Add wallet balance in paise (1 rupee = 100 paise)
+  walletBalancePaise: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   isActive: {
     type: Boolean,
     default: true,
   },
-   gender: {
+  gender: {
     type: String,
     enum: ['male','female','other'],
     default: 'other'
@@ -74,6 +80,24 @@ UserSchema.methods.createJWT = function () {
 UserSchema.methods.comparePassword = async function (candidatePassword) {
   const isMatch = await bcrypt.compare(candidatePassword, this.password);
   return isMatch;
+};
+
+// Helper methods for wallet operations
+UserSchema.methods.getWalletBalanceInRupees = function() {
+  return this.walletBalancePaise / 100;
+};
+
+UserSchema.methods.addToWallet = async function(amountInPaise) {
+  this.walletBalancePaise += amountInPaise;
+  return await this.save();
+};
+
+UserSchema.methods.deductFromWallet = async function(amountInPaise) {
+  if (this.walletBalancePaise < amountInPaise) {
+    throw new Error('Insufficient wallet balance');
+  }
+  this.walletBalancePaise -= amountInPaise;
+  return await this.save();
 };
 
 module.exports = mongoose.model('User', UserSchema);

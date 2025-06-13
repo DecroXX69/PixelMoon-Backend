@@ -154,12 +154,17 @@ res.status(ok ? 200 : 400).json({
       const time = Math.floor(Date.now()/1000);
       const params = { uid, email, product, productid, userid, zoneid, time };
       const sign = this._buildSign(params, secret);
-      const body = new URLSearchParams({ ...params, sign, orderid });
+      const body = new URLSearchParams({ ...params, sign });
       
-      const { data } = await axios.post(url, body, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 15000
-      });
+     const form = new FormData();
+Object.entries({ ...params, sign }).forEach(([key, value]) => {
+  form.append(key, value);
+});
+
+const { data } = await axios.post(url, form, {
+  headers: form.getHeaders(), // Automatically sets multipart/form-data
+  timeout: 15000
+});
       
       return data;
     } catch (error) {
@@ -216,28 +221,7 @@ async getYokcashProducts() {
     }
   }
 
-  async processYokcashOrder(orderData) {
-    try {
-      // POST to https://a-api.yokcash.com/api/order
-      const url = `${this.baseUrls.yokcash}/order`;
-      const body = new URLSearchParams({
-        api_key:    this.apiKeys.yokcash,
-        service_id: orderData.service_id,
-        target:     orderData.target,
-        contact:    orderData.contact,
-        idtrx:      orderData.idtrx
-      });
-      const response = await axios.post(
-        url,
-        body.toString(),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Yokcash Order Error:', error.response?.data || error.message);
-      throw new Error('Failed to process Yokcash order');
-    }
-  }
+
 
   async getYokcashOrderStatus(orderId) {
     try {
@@ -287,7 +271,7 @@ async getHopestoreProducts() {
    async processHopestoreOrder(orderData) {
     try {
       // Hopestore /order expects URL-encoded form:
-      const url = `${this.baseUrls.hopestore}/api/order`;
+      const url = `${this.baseUrls.hopestore}/order`;
       // orderData should have keys: service_id, target, contact, idtrx
       const body = new URLSearchParams({
         api_key:    this.apiKeys.hopestore,
@@ -309,7 +293,7 @@ async getHopestoreProducts() {
 
    async getHopestoreOrderStatus(orderId) {
     try {
-      const url = 'https://a-api.hopestore.id/api/status';
+      const url = `${this.baseUrls.hopestore}/status`;
       // Hopestore expects the same pattern: POST with api_key & order_id
       const body = new URLSearchParams({
         api_key:  this.apiKeys.hopestore,

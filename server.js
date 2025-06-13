@@ -1,6 +1,6 @@
 require('dotenv').config();
 require('express-async-errors');
-
+const walletRoutes = require('./routes/walletRoutes');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -67,6 +67,7 @@ app.use('/api/vouchers',  authenticateUser, voucherRouter);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin/banners', adminBannersRouter);
 app.use('/api/banners', publicBannersRouter);
+app.use('/api/wallet', walletRoutes);
 // 6) 404 + Error handlers
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

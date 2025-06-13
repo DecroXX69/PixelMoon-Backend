@@ -54,7 +54,7 @@ const orderSchema = new mongoose.Schema({
   paymentInfo: {
     method: {
       type: String,
-      enum: ['wallet', 'phonepe', 'binance', 'razorpay'],
+      enum: ['wallet', 'phonepe'],
       required: true
     },
     transactionId: {
