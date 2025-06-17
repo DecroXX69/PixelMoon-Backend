@@ -10,6 +10,8 @@ const {
   getAllUsers,
   updateUserRole,
   updateProfile,
+  deleteUser,
+  toggleUserStatus
 } = require('../controllers/authController');
 const { authenticateUser, authorizeRoles } = require('../middleware/authMiddleware');
 
@@ -27,5 +29,9 @@ router.put('/users/:userId/role', authenticateUser, authorizeRoles('admin'), upd
 
 // Legacy route (keeping for backward compatibility)
 router.patch('/promote/:userId', authenticateUser, promoteToReseller);
+
+// Add after existing admin routes
+router.delete('/users/:userId', authenticateUser, authorizeRoles('admin'), deleteUser);
+router.patch('/users/:userId/status', authenticateUser, authorizeRoles('admin'), toggleUserStatus);
 
 module.exports = router;

@@ -48,6 +48,14 @@ createOrder: async (req, res) => {
     const game = await Game.findById(gameId);
     if (!game) throw new NotFoundError('Game not found');
 
+    if ((provider === 'yokcash' || provider === 'hopestore')) {
+  if (!contact) {
+    throw new BadRequestError('Contact is required for this provider');
+  }
+  if (!contact.startsWith('62') && !contact.startsWith('0000')) {
+    throw new BadRequestError('Contact must start with country code 62 (Indonesia) or 0000 (International)');
+  }
+}
     // 1c) Find the Pack inside this game
     const pack = game.packs.find(p => p.packId === packId);
     if (!pack) throw new NotFoundError('Pack not found');
@@ -145,10 +153,7 @@ createOrder: async (req, res) => {
               contact: contact || '',
               idtrx: newOrder.orderId 
             };
-            // In createOrder controller before processing Hopestore order:
-if (!orderData.contact.startsWith('62')) {
-  throw new BadRequestError('Contact must start with country code 62');
-}
+            
             apiResponse = await APIService.processYokcashOrder(body);
             apiOrderId = apiResponse.data?.id || '';  
             break;
@@ -162,10 +167,7 @@ if (!orderData.contact.startsWith('62')) {
               contact: contact || '',
               idtrx: newOrder.orderId 
             };
-            // In createOrder controller before processing Hopestore order:
-if (!orderData.contact.startsWith('62')) {
-  throw new BadRequestError('Contact must start with country code 62');
-}
+
             apiResponse = await APIService.processHopestoreOrder(body);
             apiOrderId = apiResponse.data?.id || '';
             break;

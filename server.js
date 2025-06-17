@@ -68,6 +68,7 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin/banners', adminBannersRouter);
 app.use('/api/banners', publicBannersRouter);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/profit-calculator', require('./routes/profitCalculator'));
 // 6) 404 + Error handlers
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

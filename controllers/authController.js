@@ -191,6 +191,62 @@ const updateProfile = async (req, res) => {
   });
 };
 
+
+// Add after updateProfile function, before module.exports
+const deleteUser = async (req, res) => {
+  const { userId } = req.params;
+  
+  if (req.user.role !== 'admin') {
+    throw new UnauthenticatedError('Access denied. Admin only.');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new BadRequestError('User not found');
+  }
+
+  if (user.role === 'admin') {
+    throw new BadRequestError('Cannot delete admin user');
+  }
+
+  await User.findByIdAndDelete(userId);
+
+  res.status(StatusCodes.OK).json({
+    message: 'User deleted successfully'
+  });
+};
+
+const toggleUserStatus = async (req, res) => {
+  const { userId } = req.params;
+  
+  if (req.user.role !== 'admin') {
+    throw new UnauthenticatedError('Access denied. Admin only.');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new BadRequestError('User not found');
+  }
+
+  if (user.role === 'admin') {
+    throw new BadRequestError('Cannot modify admin user status');
+  }
+
+  user.isActive = !user.isActive;
+  await user.save();
+
+  res.status(StatusCodes.OK).json({
+    message: `User ${user.isActive ? 'activated' : 'blocked'} successfully`,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive
+    }
+  });
+};
+
 module.exports = {
   register,
   login,
@@ -200,4 +256,6 @@ module.exports = {
   getAllUsers,
   updateUserRole,
   updateProfile,
+  deleteUser,
+  toggleUserStatus
 };

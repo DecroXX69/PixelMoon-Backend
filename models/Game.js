@@ -37,39 +37,43 @@ const gameSchema = new mongoose.Schema({
     default: true
   },
   packs: [{
-    packId: {
-      type: String,
-      required: true,
-      set: v => v.trim()
-    },
-    name: {
-      type: String,
-      required: true
-    },
-    description: {
-      type: String
-    },
-    amount: {
-      type: Number,
-      required: true // Diamond/UC/Currency amount
-    },
-    retailPrice: {
-      type: Number,
-      required: true
-    },
-    resellerPrice: {
-      type: Number,
-      required: true
-    },
-    costPrice: {
-      type: Number,
-      required: true // Cost from third-party API
-    },
-    isActive: {
-      type: Boolean,
-      default: true
-    }
-  }],
+  packId: {
+    type: String,
+    required: true,
+    set: v => v.trim()
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  description: {
+    type: String
+  },
+  image: {
+    type: String,
+    default: null // Pack image is optional
+  },
+  amount: {
+    type: Number,
+    required: true
+  },
+  retailPrice: {
+    type: Number,
+    required: true
+  },
+  resellerPrice: {
+    type: Number,
+    required: true
+  },
+  costPrice: {
+    type: Number,
+    required: true
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

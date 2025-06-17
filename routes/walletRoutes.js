@@ -1,12 +1,13 @@
 // routes/wallet.js - Updated Wallet routes with correct middleware
 const express = require('express');
 const router = express.Router();
-const {
-  getWalletBalance,
-  getWalletTransactions,
-  initiateDeposit,
-  handlePhonePeWebhook,
-  creditWallet
+const { 
+  getWalletBalance, 
+  getWalletTransactions, 
+  initiateDeposit, 
+  handlePhonePeWebhook, 
+  checkPaymentStatus,  // Add this
+  creditWallet 
 } = require('../controllers/walletController');
 const { authenticateUser, authorizeRoles } = require('../middleware/authMiddleware');
 
@@ -21,5 +22,6 @@ router.post('/credit', authenticateUser, authorizeRoles('admin'), creditWallet);
 // Public webhook endpoint (PhonePe will call this)
 // Note: This should NOT have authentication middleware
 router.post('/phonepe-webhook', handlePhonePeWebhook);
-
+// Add this line after the existing routes
+router.get('/payment-status/:transactionId', authenticateUser, checkPaymentStatus);
 module.exports = router;

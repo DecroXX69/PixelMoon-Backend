@@ -189,12 +189,24 @@ const addPackToGame = async (req, res) => {
     }
 
     const { id } = req.params;
-    const packData = req.body;
+    const { packId, name, description, image, amount, retailPrice, resellerPrice, costPrice, isActive } = req.body;
 
     const game = await Game.findById(id);
     if (!game) {
       throw new NotFoundError('Game not found');
     }
+
+    const packData = {
+      packId,
+      name,
+      description,
+      image: image || null,
+      amount,
+      retailPrice,
+      resellerPrice,
+      costPrice,
+      isActive: isActive !== undefined ? isActive : true
+    };
 
     game.packs.push(packData);
     await game.save();
@@ -237,7 +249,13 @@ const updatePack = async (req, res) => {
       throw new NotFoundError('Pack not found');
     }
 
-    game.packs[packIndex] = { ...game.packs[packIndex], ...updateData };
+    // Update pack with new data including image
+    game.packs[packIndex] = { 
+      ...game.packs[packIndex].toObject(), 
+      ...updateData,
+      image: updateData.image !== undefined ? updateData.image : game.packs[packIndex].image
+    };
+    
     await game.save();
 
     res.status(StatusCodes.OK).json({
@@ -420,9 +438,18 @@ const validateGameUser = async (req, res) => {
 
     const validationResult = await APIService.validateUser(provider, gameId, userId, serverId);
     
+    // Better validation logic
+    let isValid = false;
+    if (provider === 'smile.one') {
+      isValid = validationResult?.status === 'success' || validationResult?.code === 200;
+    } else {
+      // For Yokcash/Hopestore, assume valid since they don't have validation endpoints
+      isValid = validationResult?.status === true;
+    }
+    
     res.status(StatusCodes.OK).json({
       success: true,
-      valid: validationResult?.status === 'success' || validationResult?.code === 200,
+      valid: isValid,
       data: validationResult
     });
   } catch (error) {
