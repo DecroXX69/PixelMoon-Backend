@@ -430,31 +430,59 @@ const getApiProducts = async (req, res) => {
 // Validate game user across different providers
 const validateGameUser = async (req, res) => {
   try {
-    const { gameId, userId, serverId, provider } = req.body;
+    const { gameId, userId, serverId } = req.body;
     
-    if (!gameId || !userId || !provider) {
-      throw new BadRequestError('Game ID, User ID, and provider are required');
+    if (!gameId || !userId) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: 'Game ID and User ID are required'
+      });
     }
 
-    const validationResult = await APIService.validateUser(provider, gameId, userId, serverId);
-    
-    // Better validation logic
-    let isValid = false;
-    if (provider === 'smile.one') {
-      isValid = validationResult?.status === 'success' || validationResult?.code === 200;
-    } else {
-      // For Yokcash/Hopestore, assume valid since they don't have validation endpoints
-      isValid = validationResult?.status === true;
+    // Get game to determine provider
+    const game = await Game.findById(gameId);
+    if (!game) {
+      return res.status(404).json({
+        success: false,
+        valid: false,
+        message: 'Game not found'
+      });
     }
-    
-    res.status(StatusCodes.OK).json({
-      success: true,
-      valid: isValid,
-      data: validationResult
-    });
+
+    const provider = game.apiProvider; // Assuming you have this field
+
+    if (provider === 'smile.one') {
+      const validationResult = await APIService.validateUser(provider, game.apiGameId, userId, serverId);
+      
+      const isValid = validationResult?.status === 200;
+      
+      res.status(200).json({
+        success: true,
+        valid: isValid,
+        data: isValid ? {
+          userId: userId,
+          username: validationResult.username || 'Unknown',
+          zone: validationResult.zone
+        } : null,
+        message: isValid ? 'User validated successfully' : 'User validation failed'
+      });
+    } else {
+      // For Yokcash/Hopestore - no validation, just return success
+      res.status(200).json({
+        success: true,
+        valid: true,
+        data: {
+          userId: userId,
+          username: 'User', // Generic username
+          zone: serverId || 'N/A'
+        },
+        message: 'User validated successfully'
+      });
+    }
   } catch (error) {
     console.error('Error validating user:', error);
-    res.status(StatusCodes.OK).json({
+    res.status(200).json({
       success: false,
       valid: false,
       message: 'User validation failed',

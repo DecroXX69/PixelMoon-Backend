@@ -356,7 +356,6 @@ getOrderStatus: async (req, res) => {
      // Add in getOrderStatus controller
 case 'yokcash':
   statusRes = await APIService.getYokcashOrderStatus(externalId);
-  remoteStatus = statusRes.data?.status?.toLowerCase(); // Normalize case
   break;
       case 'hopestore': {
         statusRes = await APIService.getHopestoreOrderStatus(externalId);
@@ -366,8 +365,8 @@ case 'yokcash':
         throw new BadRequestError('Invalid provider on order');
     }
 
-    const remoteStatus = statusRes.data?.status;
-    if (remoteStatus === 'success' || remoteStatus === 'Success') {
+    const remoteStatus = statusRes.data?.status?.toLowerCase();
+if (remoteStatus === 'success') {
       order.status = 'completed';
       order.completedAt = new Date();
     } else if (remoteStatus === 'pending') {

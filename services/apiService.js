@@ -118,33 +118,25 @@ _buildSign(params, secret) {
 
   /** Validate a user via Smile.one getrole */
   async validateSmileoneUser({ product, productid, userid, zoneid }) {
-    try {
-      const url = `${this.baseUrls.smileone}/getrole`;
-      const { uid, email, secret } = this.smileone;
-      const time = Math.floor(Date.now()/1000);
-      const params = { uid, email, product, productid, userid, zoneid, time };
-      const sign = this._buildSign(params, secret);
-      const body = new URLSearchParams({ ...params, sign });
-      
-      const ok = validationResult.status === 200;
-res.status(ok ? 200 : 400).json({
-  success: ok,
-  valid:   ok,
-  data:    validationResult
-});
-
-      
-      const { data } = await axios.post(url, body, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 10000
-      });
-      
-      return data;
-    } catch (error) {
-      console.error('Smile.one user validation error:', error.response?.data || error.message);
-      throw new Error('Failed to validate Smile.one user');
-    }
+  try {
+    const url = `${this.baseUrls.smileone}/getrole`;
+    const { uid, email, secret } = this.smileone;
+    const time = Math.floor(Date.now()/1000);
+    const params = { uid, email, product, productid, userid, zoneid, time };
+    const sign = this._buildSign(params, secret);
+    const body = new URLSearchParams({ ...params, sign });
+    
+    const response = await axios.post(url, body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 10000
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Smile.one user validation error:', error.response?.data || error.message);
+    throw new Error('Failed to validate Smile.one user');
   }
+}
 
 
   
