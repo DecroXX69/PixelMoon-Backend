@@ -83,10 +83,23 @@ const orderSchema = new mongoose.Schema({
     }
   },
   status: {
+  type: String,
+  enum: ['pending', 'awaiting_payment', 'paid', 'processing', 'completed', 'failed', 'refunded'],
+  default: 'pending'
+},
+// Add phonepe fields to paymentInfo:
+paymentInfo: {
+  method: {
     type: String,
-    enum: ['pending', 'processing', 'completed', 'failed', 'refunded'],
-    default: 'pending'
+    enum: ['wallet', 'phonepe'],
+    required: true
   },
+  transactionId: String,
+  walletTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'WalletTransaction' },
+  phonepeOrderId: String,
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'INR' }
+},
   profit: {
     type: Number,
     default: 0 // Calculated profit for admin

@@ -15,6 +15,7 @@ router.get('/', authenticateUser, orderController.listUserOrders);
 
 // In routes/order.js, add this route
 router.post('/refund/:orderId', authenticateUser, authorizeRoles('admin'), orderController.refundOrder);
-
+// In your routes file:
+router.post('/orders/complete-phonepe', authenticateUser, orderController.completePhonePeOrder);
 
 module.exports = router;
