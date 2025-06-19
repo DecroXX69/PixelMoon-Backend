@@ -1,4 +1,4 @@
-// models/Order.js
+// models/Order.js - Fixed schema
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
@@ -32,11 +32,11 @@ const orderSchema = new mongoose.Schema({
     },
     price: {
       type: Number,
-      required: true // Final price paid by user
+      required: true
     },
     costPrice: {
       type: Number,
-      required: true // Cost price from third-party API
+      required: true
     }
   },
   gameUserInfo: {
@@ -57,16 +57,19 @@ const orderSchema = new mongoose.Schema({
       enum: ['wallet', 'phonepe'],
       required: true
     },
-    transactionId: {
-      type: String
+    transactionId: String,
+    walletTransactionId: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'WalletTransaction' 
     },
-    amount: {
-      type: Number,
-      required: true
+    phonepeOrderId: String,
+    amount: { 
+      type: Number, 
+      required: true 
     },
-    currency: {
-      type: String,
-      default: 'INR'
+    currency: { 
+      type: String, 
+      default: 'INR' 
     }
   },
   apiOrder: {
@@ -83,26 +86,13 @@ const orderSchema = new mongoose.Schema({
     }
   },
   status: {
-  type: String,
-  enum: ['pending', 'awaiting_payment', 'paid', 'processing', 'completed', 'failed', 'refunded'],
-  default: 'pending'
-},
-// Add phonepe fields to paymentInfo:
-paymentInfo: {
-  method: {
     type: String,
-    enum: ['wallet', 'phonepe'],
-    required: true
+    enum: ['pending', 'awaiting_payment', 'paid', 'processing', 'completed', 'failed', 'refunded'],
+    default: 'pending'
   },
-  transactionId: String,
-  walletTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'WalletTransaction' },
-  phonepeOrderId: String,
-  amount: { type: Number, required: true },
-  currency: { type: String, default: 'INR' }
-},
   profit: {
     type: Number,
-    default: 0 // Calculated profit for admin
+    default: 0
   },
   notes: {
     type: String
@@ -112,6 +102,14 @@ paymentInfo: {
   },
   failureReason: {
     type: String
+  },
+  refundInfo: {
+    refundedAt: Date,
+    reason: String,
+    refundedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   }
 }, {
   timestamps: true

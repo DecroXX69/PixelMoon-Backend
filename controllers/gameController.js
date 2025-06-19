@@ -5,6 +5,8 @@ const APIService = require('../services/apiService');
 const { StatusCodes } = require('http-status-codes');
 const { BadRequestError, NotFoundError } = require('../errors');
 
+const VALID_PROVIDERS = ['smile.one', 'yokcash', 'hopestore'];
+
 // Get all games (public)
 const getAllGames = async (req, res) => {
   try {
@@ -52,6 +54,7 @@ const getGameById = async (req, res) => {
 };
 
 // Create new game (admin only)
+// Create new game (admin only)
 const createGame = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -61,30 +64,35 @@ const createGame = async (req, res) => {
       });
     }
 
-    const { name, description, image, apiProvider, apiGameId, region, category, packs } = req.body;
+    const { name, description, image, region, category, packs } = req.body;
 
-    // Validate required fields
-    if (!name || !description || !image || !apiProvider || !apiGameId || !region) {
+    // Validate required fields (removed apiProvider and apiGameId)
+    if (!name || !description || !image || !region) {
       throw new BadRequestError('Please provide all required fields');
     }
 
-    // Check if game already exists with same API provider and game ID
+    // Check if game already exists with same name
     const existingGame = await Game.findOne({ 
-      apiProvider, 
-      apiGameId,
       name: { $regex: new RegExp(name, 'i') }
     });
 
     if (existingGame) {
-      throw new BadRequestError('Game with this name and API configuration already exists');
+      throw new BadRequestError('Game with this name already exists');
+    }
+
+    // Validate packs if provided
+    if (packs && packs.length > 0) {
+      for (const pack of packs) {
+        if (!pack.provider || !pack.packId) {
+          throw new BadRequestError('Each pack must have a provider and packId');
+        }
+      }
     }
 
     const gameData = {
       name: name.trim(),
       description: description.trim(),
       image,
-      apiProvider,
-      apiGameId,
       region,
       category: category || 'Mobile Games',
       packs: packs || [],
@@ -105,6 +113,115 @@ const createGame = async (req, res) => {
       success: false,
       message: 'Error creating game',
       error: error.message
+    });
+  }
+};
+// Get products for a specific provider (for dropdown population)
+// Get products for a specific provider
+const getProviderProducts = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false, message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { provider } = req.params;
+    let products = [];
+    
+    switch (provider) {
+      case 'smile.one':
+        const games = await APIService.getSmileoneGames();
+        products = games.map(game => ({
+          id: game.name,
+          name: game.name,
+          displayName: game.name
+        }));
+        break;
+        
+      case 'yokcash':
+        const yokResult = await APIService.getYokcashProducts();
+        if (yokResult.status && yokResult.data) {
+          const categories = [...new Set(yokResult.data.map(item => item.kategori).filter(Boolean))];
+          products = categories.map(cat => ({
+            id: cat.toLowerCase().replace(/\s+/g, '-'),
+            name: cat,
+            displayName: cat
+          }));
+        }
+        break;
+        
+      case 'hopestore':
+        const hopeResult = await APIService.getHopestoreProducts();
+        if (hopeResult.status && hopeResult.data) {
+          const categories = [...new Set(hopeResult.data.map(item => item.kategori).filter(Boolean))];
+          products = categories.map(cat => ({
+            id: cat.toLowerCase().replace(/\s+/g, '-'),
+            name: cat,
+            displayName: cat
+          }));
+        }
+        break;
+        
+      default:
+        throw new BadRequestError('Invalid provider');
+    }
+    
+    res.status(StatusCodes.OK).json({ success: true, products });
+  } catch (error) {
+    console.error('Error fetching provider products:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false, message: 'Error fetching products', error: error.message
+    });
+  }
+};
+
+// Get packs for a specific provider and product
+const getProviderPacks = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false, message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { provider, productId } = req.params;
+    let packs = [];
+    
+    switch (provider) {
+   case 'smile.one':
+  const smileResult = await APIService.getSmileonePacks(productId);
+  packs = smileResult.data?.product || smileResult || [];
+  break;
+      case 'yokcash':
+        const yokResult = await APIService.getYokcashProducts();
+        if (yokResult.status && yokResult.data) {
+          const targetCategory = productId.replace(/-/g, ' ');
+          packs = yokResult.data.filter(item => 
+            item.kategori && item.kategori.toLowerCase().includes(targetCategory.toLowerCase())
+          );
+        }
+        break;
+        
+      case 'hopestore':
+        const hopeResult = await APIService.getHopestoreProducts();
+        if (hopeResult.status && hopeResult.data) {
+          const targetCategory = productId.replace(/-/g, ' ');
+          packs = hopeResult.data.filter(item => 
+            item.kategori && item.kategori.toLowerCase().includes(targetCategory.toLowerCase())
+          );
+        }
+        break;
+        
+      default:
+        throw new BadRequestError('Invalid provider');
+    }
+    
+    res.status(StatusCodes.OK).json({ success: true, packs });
+  } catch (error) {
+    console.error('Error fetching provider packs:', error);
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false, message: 'Error fetching packs', error: error.message
     });
   }
 };
@@ -189,7 +306,11 @@ const addPackToGame = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { packId, name, description, image, amount, retailPrice, resellerPrice, costPrice, isActive } = req.body;
+    const { packId, name, description, image, amount, retailPrice, resellerPrice, costPrice, isActive, provider } = req.body;
+
+    if (!provider || !VALID_PROVIDERS.includes(provider)) {
+      throw new BadRequestError('Pack provider is required and must be valid');
+    }
 
     const game = await Game.findById(id);
     if (!game) {
@@ -205,7 +326,8 @@ const addPackToGame = async (req, res) => {
       retailPrice,
       resellerPrice,
       costPrice,
-      isActive: isActive !== undefined ? isActive : true
+      isActive: isActive !== undefined ? isActive : true,
+      provider
     };
 
     game.packs.push(packData);
@@ -239,6 +361,10 @@ const updatePack = async (req, res) => {
     const { id, packId } = req.params;
     const updateData = req.body;
 
+    if (updateData.provider && !VALID_PROVIDERS.includes(updateData.provider)) {
+      throw new BadRequestError('Pack provider must be valid');
+    }
+
     const game = await Game.findById(id);
     if (!game) {
       throw new NotFoundError('Game not found');
@@ -249,7 +375,6 @@ const updatePack = async (req, res) => {
       throw new NotFoundError('Pack not found');
     }
 
-    // Update pack with new data including image
     game.packs[packIndex] = { 
       ...game.packs[packIndex].toObject(), 
       ...updateData,
@@ -504,5 +629,7 @@ module.exports = {
   getApiServers,
   getApiPacks,
   getApiProducts,
-  validateGameUser
+  validateGameUser,
+  getProviderProducts,
+  getProviderPacks
 };

@@ -61,21 +61,25 @@ async function initiatePayment(amountPaise, transactionId) {
       }
     };
 
-    const response = await axios.post(
-      `${process.env.PHONEPE_BASE_URL}/checkout/v2/pay`,
-      paymentData,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `O-Bearer ${token}`
-        }
-      }
-    );
+   const response = await axios.post(
+  `${process.env.PHONEPE_BASE_URL}/checkout/v2/pay`,
+  paymentData,
+  {
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `O-Bearer ${token}`
+    }
+  }
+);
 
-    return {
-      merchantOrderId,
-      checkoutUrl: response.data.url
-    };
+if (response.data.state !== 'PENDING') {
+  throw new Error(`Payment creation failed: ${response.data.state}`);
+}
+
+return {
+  merchantOrderId,
+  checkoutUrl: response.data.redirectUrl // Based on PhonePe docs
+};
   } catch (error) {
     console.error('Error initiating payment:', error.response?.data || error.message);
     throw new Error('Failed to initiate payment');
@@ -83,28 +87,27 @@ async function initiatePayment(amountPaise, transactionId) {
 }
 
 // Validate webhook callback
-function validateCallback(authHeader, bodyString) {
+// Replace validateCallback function with:
+function validateWebhookSignature(authHeader) {
   try {
-    // Extract credentials from auth header
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
-      throw new Error('Invalid authorization header');
+    if (!authHeader || !authHeader.startsWith('SHA256 ')) {
+      return false;
     }
-
-    const credentials = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
-    const [username, password] = credentials.split(':');
-
-    if (username !== process.env.PHONEPE_CALLBACK_USERNAME || 
-        password !== process.env.PHONEPE_CALLBACK_PASSWORD) {
-      throw new Error('Invalid webhook credentials');
-    }
-
-    const payload = JSON.parse(bodyString);
-    return { payload };
+    
+    const receivedHash = authHeader.slice(7); // Remove 'SHA256 '
+    const expectedHash = crypto
+      .createHash('sha256')
+      .update(`${process.env.PHONEPE_CALLBACK_USERNAME}:${process.env.PHONEPE_CALLBACK_PASSWORD}`)
+      .digest('hex');
+    
+    return receivedHash === expectedHash;
   } catch (error) {
-    console.error('Webhook validation error:', error.message);
-    throw new Error('Invalid webhook signature or payload');
+    console.error('Webhook signature validation error:', error.message);
+    return false;
   }
 }
+
+
 
 // Get payment status
 async function getPaymentStatus(merchantOrderId) {
@@ -185,7 +188,7 @@ async function getRefundStatus(merchantRefundId) {
 
 module.exports = {
   initiatePayment,
-  validateCallback,
+  validateWebhookSignature,
   getPaymentStatus,
   initiateRefund,
   getRefundStatus

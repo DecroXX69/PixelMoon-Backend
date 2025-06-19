@@ -35,7 +35,9 @@ router.get('/api-packs/:product', authenticateUser, gameController.getApiPacks);
 // API integration routes Yokcash and Hopestore
 router.get('/api-products/:provider', authenticateUser, gameController.getApiProducts);
 
-// ...existing code...
+// Add these lines after the existing routes, before module.exports
+router.get('/provider/:provider/products', authenticateUser, gameController.getProviderProducts);
+router.get('/provider/:provider/products/:productId/packs', authenticateUser, gameController.getProviderPacks);
 router.post('/verify-userid', authenticateUser, gameController.validateGameUser);
 // ...existing code...
 module.exports = router;

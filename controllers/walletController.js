@@ -165,11 +165,18 @@ const handlePhonePeWebhook = async (req, res) => {
   session.startTransaction();
   try {
     const authHeader = req.headers.authorization;
-    const bodyString = JSON.stringify(req.body);
-    const callbackResp = phonepeService.validateCallback(authHeader, bodyString);
-const { merchantOrderId: orderId, state, transactionType } = callbackResp.payload;
-    // Refund callback
-    if (transactionType === 'REFUND') {
+if (!phonepeService.validateWebhookSignature(authHeader)) {
+  return res.status(StatusCodes.UNAUTHORIZED).json({ 
+    success: false, 
+    message: 'Invalid webhook signature' 
+  });
+}
+const callbackResp = req.body;
+const { event, payload } = callbackResp;
+const { merchantOrderId: orderId, state } = payload;
+
+// Refund callback  
+if (event.includes('refund')) {
       const refTxn = await WalletTransaction.findOne({
         'metadata.refundId': orderId,
         type: 'REFUND',

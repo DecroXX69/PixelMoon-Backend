@@ -435,10 +435,9 @@ const OrderController = {
   getOrderStatus: async (req, res) => {
     try {
       const { orderId } = req.params;
-      const order = await Order.findOne({ orderId });
+      const order = await Order.findOne({ orderId }).populate('user');
       if (!order) throw new NotFoundError('Order not found');
-      if (order.user.toString() !== req.user.userId) throw new UnauthorizedError('Not authorized to view this order');
-
+      if (order.user.toString() !== req.user.userId.toString()) throw new UnauthorizedError('Not authorized to view this order');
       const provider = order.apiOrder.provider;
       const externalId = order.apiOrder.apiOrderId;
       if (!externalId) throw new BadRequestError('No external order ID saved for this order');
@@ -506,7 +505,7 @@ const OrderController = {
   // List user orders
   listUserOrders: async (req, res) => {
     try {
-      const userId = req.user.userId;
+      const userId = new mongoose.Types.ObjectId(req.user.userId);
       const orders = await Order.find({ user: userId })
         .populate('game', 'name apiProvider')
         .sort({ createdAt: -1 });
