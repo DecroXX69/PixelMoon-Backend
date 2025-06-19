@@ -30,12 +30,12 @@ async function processThirdPartyAPI(order, game, pack, provider, contact, inGame
     switch (provider) {
       case 'smile.one': {
         const payload = {
-          product: game.apiGameId,
-          productid: pack.packId,
-          userid: inGameUserId,
-          zoneid: serverId || '',
-          orderid: order.orderId
-        };
+    product: pack.productId, // Use pack.productId instead of game.apiGameId
+    productid: pack.packId,
+    userid: inGameUserId,
+    zoneid: serverId || '',
+    orderid: order.orderId
+  };
         console.log('Calling Smile.one with payload:', payload);
         apiResponse = await APIService.processSmileoneOrder(payload);
         console.log('Smile.one response:', apiResponse);
@@ -43,35 +43,31 @@ async function processThirdPartyAPI(order, game, pack, provider, contact, inGame
         break;
       }
       case 'yokcash': {
-        const service_id = pack.packId;
-        const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
-        const body = {
-          service_id,
-          target,
-          contact: contact || '',
-          idtrx: order.orderId
-        };
-        console.log('Calling Yokcash with body:', body);
-        apiResponse = await APIService.processYokcashOrder(body);
-        console.log('Yokcash response:', apiResponse);
-        apiOrderId = apiResponse.data?.id || '';
-        break;
-      }
-      case 'hopestore': {
-        const service_id = pack.packId;
-        const target = serverId ? `${inGameUserId}|${serverId}` : `${inGameUserId}`;
-        const body = {
-          service_id,
-          target,
-          contact: contact || '',
-          idtrx: order.orderId
-        };
-        console.log('Calling Hopestore with body:', body);
-        apiResponse = await APIService.processHopestoreOrder(body);
-        console.log('Hopestore response:', apiResponse);
-        apiOrderId = apiResponse.data?.id || '';
-        break;
-      }
+  const body = {
+    service_id: pack.packId,
+    target: serverId ? `${inGameUserId}|${serverId}` : inGameUserId,
+    contact: contact || '',
+    idtrx: order.orderId
+  };
+  console.log('Calling Yokcash with body:', body);
+  apiResponse = await APIService.processYokcashOrder(body);
+  console.log('Yokcash response:', apiResponse);
+  apiOrderId = apiResponse.data?.id || '';
+  break;
+}
+case 'hopestore': {
+  const body = {
+    service_id: pack.packId,
+    target: serverId ? `${inGameUserId}|${serverId}` : inGameUserId,
+    contact: contact || '',
+    idtrx: order.orderId
+  };
+  console.log('Calling Hopestore with body:', body);
+  apiResponse = await APIService.processHopestoreOrder(body);
+  console.log('Hopestore response:', apiResponse);
+  apiOrderId = apiResponse.data?.id || '';
+  break;
+}
       default:
         throw new BadRequestError('Invalid API provider');
     }
@@ -141,73 +137,74 @@ async function processThirdPartyAPI(order, game, pack, provider, contact, inGame
 const OrderController = {
   // Create order: handles wallet or direct PhonePe payment initiation
   createOrder: async (req, res) => {
-    try {
-      const userId = req.user.userId;
-      const { gameId, packId, gameUserInfo, paymentInfo, provider, contact } = req.body;
+  try {
+    const userId = req.user.userId;
+    const { gameId, packId, gameUserInfo, paymentInfo, contact } = req.body;
 
-      // 1a) Validate required fields
-      if (!gameId || !packId || !gameUserInfo?.userId || !paymentInfo?.method || !paymentInfo?.amount || !provider) {
-        throw new BadRequestError('Missing required fields');
+    // 1a) Validate required fields (removed provider check)
+    if (!gameId || !packId || !gameUserInfo?.userId || !paymentInfo?.method || !paymentInfo?.amount) {
+      throw new BadRequestError('Missing required fields');
+    }
+    const inGameUserId = gameUserInfo.userId;
+    const serverId = gameUserInfo.serverId || '';
+
+    // 1b) Fetch the Game
+    const game = await Game.findById(gameId);
+    if (!game) throw new NotFoundError('Game not found');
+
+    // 1c) Find the Pack and get provider FIRST
+    const pack = game.packs.find(p => p.packId === packId);
+    if (!pack) throw new NotFoundError('Pack not found');
+
+    const provider = pack.provider; // Declare provider here
+
+    // 1d) Validate contact for hopestore/yokcash (moved after provider declaration)
+    if (provider === 'yokcash' || provider === 'hopestore') {
+      if (!contact) {
+        throw new BadRequestError('Contact is required for this provider');
       }
-      const inGameUserId = gameUserInfo.userId;
-      const serverId = gameUserInfo.serverId || '';
-
-      // 1b) Fetch the Game
-      const game = await Game.findById(gameId);
-      if (!game) throw new NotFoundError('Game not found');
-
-      // 1c) Validate contact for specific providers
-      if ((provider === 'yokcash' || provider === 'hopestore')) {
-        if (!contact) {
-          throw new BadRequestError('Contact is required for this provider');
-        }
-        if (!contact.startsWith('62') && !contact.startsWith('0000')) {
-          throw new BadRequestError('Contact must start with country code 62 (Indonesia) or 0000 (International)');
-        }
+      if (!contact.startsWith('62') && !contact.startsWith('0000')) {
+        throw new BadRequestError('Contact must start with country code 62 (Indonesia) or 0000 (International)');
       }
+    }
 
-      // 1d) Find the Pack inside this game
-      const pack = game.packs.find(p => p.packId === packId);
-      if (!pack) throw new NotFoundError('Pack not found');
-
-      // 1e) Validate payment amount matches pack price
-      // Ensure pack.price is the INR price stored in your Game model
-      const expectedAmount = pack.price || pack.amount;
-      if (paymentInfo.amount !== expectedAmount) {
-        throw new BadRequestError(`Payment amount mismatch. Expected: ${expectedAmount}, Got: ${paymentInfo.amount}`);
-      }
+    // 1e) Validate payment amount matches pack price
+    const expectedAmount = pack.retailPrice || pack.resellerPrice; // Use correct price field
+    if (paymentInfo.amount !== expectedAmount) {
+      throw new BadRequestError(`Payment amount mismatch. Expected: ${expectedAmount}, Got: ${paymentInfo.amount}`);
+    }
 
       // 1f) Create an Order document with initial status
       // For direct PhonePe payment: status 'pending_payment' or 'awaiting_payment'
       const initialStatus = paymentInfo.method === 'phonepe' ? 'awaiting_payment' : 'pending';
       const newOrder = new Order({
-        user: userId,
-        game: gameId,
-        pack: {
-          packId: pack.packId,
-          name: pack.name,
-          amount: pack.amount,
-          price: paymentInfo.amount,
-          costPrice: pack.costPrice
-        },
-        gameUserInfo: {
-          userId: inGameUserId,
-          serverId: serverId
-        },
-        paymentInfo: {
-          method: paymentInfo.method,
-          transactionId: '', // to fill after initiation
-          amount: paymentInfo.amount,
-          currency: paymentInfo.currency || 'INR'
-        },
-        apiOrder: {
-          provider: provider,
-          apiOrderId: '',
-          apiResponse: {}
-        },
-        status: initialStatus,
-        profit: paymentInfo.amount - pack.costPrice
-      });
+  user: userId,
+  game: gameId,
+  pack: {
+    packId: pack.packId,
+    name: pack.name,
+    amount: pack.amount,
+    price: paymentInfo.amount,
+    costPrice: pack.costPrice
+  },
+  gameUserInfo: {
+    userId: inGameUserId,
+    serverId: serverId
+  },
+  paymentInfo: {
+    method: paymentInfo.method,
+    transactionId: '',
+    amount: paymentInfo.amount,
+    currency: paymentInfo.currency || 'INR'
+  },
+  apiOrder: {
+    provider: provider, // Use pack.provider, not hardcoded
+    apiOrderId: '',
+    apiResponse: {}
+  },
+  status: initialStatus,
+  profit: paymentInfo.amount - pack.costPrice
+});
       await newOrder.save();
       console.log('Order created:', newOrder._id, 'status:', newOrder.status);
 
@@ -230,9 +227,9 @@ const OrderController = {
           await newOrder.save();
 
           // Proceed to API call after successful wallet payment
-          await processThirdPartyAPI(
-            newOrder, game, pack, provider, contact, inGameUserId, serverId, userId, paymentInfo
-          );
+         await processThirdPartyAPI(
+  newOrder, game, pack, provider, contact, inGameUserId, serverId, userId, paymentInfo
+);
 
           return res.status(StatusCodes.CREATED).json({
             success: true,
@@ -322,16 +319,12 @@ const OrderController = {
         const game = order.game;
         const pack = game.packs.find(p => p.packId === order.pack.packId);
         await processThirdPartyAPI(
-          order,
-          game,
-          pack,
-          order.apiOrder.provider,
-          contact || '',
-          order.gameUserInfo.userId,
-          order.gameUserInfo.serverId,
-          order.user,
-          order.paymentInfo
-        );
+  order, game, pack, pack.provider, contact || '', // Use pack.provider
+  order.gameUserInfo.userId,
+  order.gameUserInfo.serverId,
+  order.user,
+  order.paymentInfo
+);
         return res.status(StatusCodes.OK).json({
           success: true,
           order: order,
