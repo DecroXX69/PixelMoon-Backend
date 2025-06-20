@@ -2,6 +2,8 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Game = require('../models/Game');
+const Voucher = require('../models/Voucher');
+const { sendVoucherEmail } = require('../utils/email');
 const APIService = require('../services/apiService');
 const phonepeService = require('../services/phonepeService');
 const { spendFromWallet, refundToWallet } = require('./walletController');
@@ -66,6 +68,45 @@ case 'hopestore': {
   apiResponse = await APIService.processHopestoreOrder(body);
   console.log('Hopestore response:', apiResponse);
   apiOrderId = apiResponse.data?.id || '';
+  break;
+}
+
+case 'voucher': {
+  const voucher = await Voucher.findOne({
+    type: pack.productId,
+    denomination: pack.amount,
+    status: 'active'
+  }).sort({ uploadedAt: 1 });
+
+  if (!voucher) {
+    throw new Error('No vouchers available');
+  }
+
+  // Mark voucher as redeemed
+  voucher.status = 'redeemed';
+  voucher.redeemedAt = new Date();
+  voucher.redeemedBy = userId;
+  await voucher.save();
+
+  // Get user details and send email
+  const user = await User.findById(userId);
+  
+  
+  await sendVoucherEmail({
+    to: user.email,
+    username: user.name || user.username,
+    code: voucher.code,
+    type: voucher.type,
+    denomination: voucher.denomination,
+    price: voucher.price
+  });
+
+  // Mark order as completed
+  order.status = 'completed';
+  order.completedAt = new Date();
+  
+  apiResponse = { success: true, code: voucher.code };
+  apiOrderId = voucher._id.toString();
   break;
 }
       default:

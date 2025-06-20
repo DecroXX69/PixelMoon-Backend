@@ -616,6 +616,39 @@ const validateGameUser = async (req, res) => {
   }
 };
 
+const getAvailableVouchers = async (req, res) => {
+  try {
+    const vouchers = await Voucher.aggregate([
+      { $match: { status: 'active' } },
+      {
+        $group: {
+          _id: { type: '$type', denomination: '$denomination' },
+          count: { $sum: 1 },
+          price: { $first: '$price' },
+          sampleId: { $first: '$_id' }
+        }
+      },
+      {
+        $project: {
+          _id: '$sampleId',
+          name: { $concat: [{ $toString: '$_id.denomination' }, ' ', { $toUpper: '$_id.type' }, ' Voucher'] },
+          type: '$_id.type',
+          denomination: '$_id.denomination',
+          retailPrice: '$price',
+          resellerPrice: { $multiply: ['$price', 0.95] },
+          availableCount: '$count',
+          category: 'Game Vouchers',
+          image: 'https://via.placeholder.com/300x200/4f46e5/ffffff?text=Voucher'
+        }
+      }
+    ]);
+
+    res.json({ success: true, vouchers });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAllGames,
   getGameById,
@@ -631,5 +664,6 @@ module.exports = {
   getApiProducts,
   validateGameUser,
   getProviderProducts,
-  getProviderPacks
+  getProviderPacks,
+  getAvailableVouchers
 };

@@ -39,5 +39,7 @@ router.get('/api-products/:provider', authenticateUser, gameController.getApiPro
 router.get('/provider/:provider/products', authenticateUser, gameController.getProviderProducts);
 router.get('/provider/:provider/products/:productId/packs', authenticateUser, gameController.getProviderPacks);
 router.post('/verify-userid', authenticateUser, gameController.validateGameUser);
+// Add voucher-specific routes
+router.get('/vouchers/available', gameController.getAvailableVouchers);
 // ...existing code...
 module.exports = router;

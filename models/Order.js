@@ -73,11 +73,11 @@ const orderSchema = new mongoose.Schema({
     }
   },
   apiOrder: {
-    provider: {
-      type: String,
-      enum: ['smile.one', 'yokcash', 'hopestore'],
-      required: true
-    },
+  provider: {
+    type: String,
+    enum: ['smile.one', 'yokcash', 'hopestore', 'voucher'], // Add 'voucher'
+    required: true
+  },
     apiOrderId: {
       type: String
     },

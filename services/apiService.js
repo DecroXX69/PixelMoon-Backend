@@ -31,13 +31,26 @@ class APIService {
   }
 
 _buildSign(params, secret) {
-  // Grab the values in the right order
-  const { uid, email, product, time } = params;
-  // Concatenate them with nothing in between
-  const raw = `${uid}${email}${product}${time}${secret}`;
-  console.log('Signing string:', raw);
-  // One MD5 round, hex lowercase
-  return crypto.createHash('md5').update(raw).digest('hex');
+  // Remove 'sign' from params if it exists
+  const { sign, ...signParams } = params;
+  
+  // Sort by key
+  const sortedKeys = Object.keys(signParams).sort();
+  
+  // Build string: key1=value1&key2=value2&secret
+  let str = '';
+  sortedKeys.forEach(key => {
+    str += `${key}=${signParams[key]}&`;
+  });
+  str += secret;
+  
+  console.log('Sign string:', str);
+  
+  // Double MD5
+  const firstMd5 = crypto.createHash('md5').update(str).digest('hex');
+  const finalSign = crypto.createHash('md5').update(firstMd5).digest('hex');
+  
+  return finalSign;
 }
 
 
@@ -415,14 +428,32 @@ async getHopestoreBalance() {
 }
 
 // Smile.one points
+// In apiService.js
 async getSmileonePoints(product) {
-  const url = `${this.baseUrls.smileone.replace('/smilecoin/api','')}/smilecoin/api/querypoints`;
-  const { uid, email, secret } = this.smileone;
-  const time = Math.floor(Date.now()/1000);
-  const params = { uid, email, product, time };
-  const sign = this._buildSign(params, secret);
-  const { data } = await axios.post(url, new URLSearchParams({ ...params, sign }));
-  return data; // { status, message, smile_points }
+  try {
+    const url = `${this.baseUrls.smileone}/querypoints`;
+    const { uid, email, secret } = this.smileone;
+    const time = Math.floor(Date.now()/1000);
+    const params = { uid, email, product, time };
+    const sign = this._buildSign(params, secret);
+    
+    const form = new FormData();
+    Object.entries({ ...params, sign }).forEach(([key, value]) => {
+      form.append(key, value);
+    });
+
+    console.log('Smile.one request params:', params);
+    const response = await axios.post(url, form, {
+      headers: form.getHeaders(),
+      timeout: 10000
+    });
+    
+    console.log('Smile.one response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Smile.one points error:', error.response?.data || error.message);
+    throw new Error('Failed to fetch Smile.one points');
+  }
 }
 
 

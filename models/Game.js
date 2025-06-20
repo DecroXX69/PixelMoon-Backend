@@ -62,7 +62,7 @@ const gameSchema = new mongoose.Schema({
     },
     provider: {
       type: String,
-      enum: ['smile.one', 'yokcash', 'hopestore'],
+      enum: ['smile.one', 'yokcash', 'hopestore', 'voucher'],
       required: true
     },
     productId: {

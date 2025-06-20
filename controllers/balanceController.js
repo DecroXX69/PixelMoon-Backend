@@ -23,11 +23,11 @@ exports.getBalances = async (req, res) => {
 
   // 3) Smile.one (don’t forget to supply a valid product slug)
   try {
-    smileRes = await APIService.getSmileonePoints('mobilelegends');
-  } catch (e) {
-    console.error('Smile.one points fetch failed:', e.message);
-    smileRes = { status: false, message: 'unavailable', smile_points: '0' };
-  }
+  smileRes = await APIService.getSmileonePoints('mobilelegends');
+  console.log('Smile.one response:', smileRes);
+} catch (e) {
+  console.error('Smile.one error:', e.message);
+}
 
   return res.status(200).json({
     success: true,

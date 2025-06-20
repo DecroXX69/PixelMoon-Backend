@@ -1,5 +1,6 @@
 const { StatusCodes } = require('http-status-codes');
 const Voucher = require('../models/Voucher');
+const Game = require('../models/Game');
 const { sendVoucherEmail } = require('../utils/email');
 const multer = require('multer');
 const csv = require('csv-parser');
@@ -172,6 +173,7 @@ const createVouchers = async (req, res) => {
         });
 
         await newVoucher.save();
+       
         results.insertedCount++;
 
       } catch (error) {
@@ -199,6 +201,44 @@ const createVouchers = async (req, res) => {
       message: 'Failed to create vouchers',
       error: error.message
     });
+  }
+};
+
+const createVoucherGame = async (voucher) => {
+  try {
+    const existingGame = await Game.findOne({ 
+      name: `${voucher.type.toUpperCase()} ${voucher.denomination} Voucher`,
+      category: 'Game Vouchers' 
+    });
+    
+    if (!existingGame) {
+      const newGame = new Game({
+        name: `${voucher.type.toUpperCase()} ${voucher.denomination} Voucher`,
+        description: `${voucher.type.toUpperCase()} voucher worth ${voucher.denomination}`,
+        image: voucher.type === 'smileone' 
+          ? 'https://example.com/smileone-voucher.jpg' 
+          : 'https://example.com/moo-voucher.jpg',
+        region: 'Global',
+        category: 'Game Vouchers',
+        packs: [{
+          packId: `VOUCHER-${voucher.type}-${voucher.denomination}`,
+          name: `${voucher.denomination} ${voucher.type.toUpperCase()} Credit`,
+          description: `Digital voucher code`,
+          amount: voucher.denomination,
+          retailPrice: voucher.price,
+          resellerPrice: voucher.price * 0.95,
+          costPrice: voucher.price * 0.90,
+          provider: 'voucher',
+          productId: voucher.type,
+          isActive: true
+        }],
+        createdBy: voucher.uploadedBy
+      });
+      
+      await newGame.save();
+    }
+  } catch (error) {
+    console.error('Error creating voucher game:', error);
   }
 };
 
